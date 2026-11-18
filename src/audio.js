@@ -25,7 +25,7 @@ function impulse(ctx, seconds) {
 
 /** Generative ambient bed: detuned drone + mains hum + air, all built in the browser. */
 function createBgm() {
-  let ctx, master, filter, wet, hum
+  let ctx, master, filter, wet, hum, burst
   let room = 0
 
   function build() {
@@ -58,6 +58,9 @@ function createBgm() {
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.4
     const ag = ctx.createGain(); ag.gain.value = 0.012
     air.connect(bp).connect(ag).connect(filter); air.start()
+    burst = ctx.createGain(); burst.gain.value = 0 // noclip static: bypasses the lowpass so it stays gritty
+    const bs = ctx.createBufferSource(); bs.buffer = nb; bs.loop = true
+    bs.connect(burst).connect(master); bs.start()
     apply(0)
   }
 
@@ -85,6 +88,7 @@ function createBgm() {
       stopTimer = setTimeout(() => ctx.suspend(), FADE_OUT * 1000 + 300)
     },
     setRoom(r) { room = r; if (ctx) apply(1.5) },
+    setNoclip(i) { if (burst && ctx.state === 'running') burst.gain.setTargetAtTime(0.02 * i, ctx.currentTime, 0.05) },
     suspend() { ctx?.suspend() },
     resume() { ctx?.resume() },
   }
@@ -139,5 +143,5 @@ export function initSound() {
     document.hidden ? bgm.suspend() : bgm.resume()
   })
 
-  return { setRoom: (r) => bgm.setRoom(r) }
+  return { setRoom: (r) => bgm.setRoom(r), setNoclip: (i) => bgm.setNoclip(i) }
 }

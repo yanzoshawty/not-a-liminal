@@ -93,8 +93,15 @@ async function boot() {
     world.composer = createPost(world, motion)
   }
 
+  let lastNoclip = 0
+  function noclipFx(i) {
+    sound.setNoclip(i)
+    if (world.composer) world.composer.glitch = i
+    else if (Math.abs(i - lastNoclip) > 0.01 || (i === 0 && lastNoclip)) { lastNoclip = i; root.style.setProperty('--noclip', i) }
+  }
+
   await world.loadFirst()
-  const scroll = bindScroll(world, { motion, fineMotion: fine && tier === 'high', onRoom: (r) => sound.setRoom(r) })
+  const scroll = bindScroll(world, { motion, fineMotion: fine && tier === 'high', onRoom: (r) => sound.setRoom(r), onNoclip: noclipFx })
   initInteract(world, scroll, { motion, fine })
   await finishLoading()
   world.loadRest().catch((err) => console.warn(err))

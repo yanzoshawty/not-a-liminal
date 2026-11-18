@@ -1,7 +1,7 @@
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { Vector3 } from 'three'
-import { lerpKeys, roomAt } from './path.js'
+import { lerpKeys, roomAt, noclip } from './path.js'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -20,7 +20,7 @@ const SPEC = [
 ]
 
 // motion: { reduced } read live every frame, so the "Gerak" button applies instantly.
-export function bindScroll(world, { motion, fineMotion, onRoom }) {
+export function bindScroll(world, { motion, fineMotion, onRoom, onNoclip }) {
   const sections = gsap.utils.toArray('main > section')
   let keys = []
   const proxy = { y: scrollY }
@@ -94,6 +94,7 @@ let offsetOn = false
     world.updateFog(cam.position.z)
     const r = roomAt(cam.position.z)
     if (r !== room) { room = r; onRoom?.(r) }
+    onNoclip?.(noclip(cam.position.z))
     world.tick?.(t, dt / 1000)
     world.render(dt / 1000)
   })
