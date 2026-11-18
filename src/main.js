@@ -63,8 +63,8 @@ async function textOnly(reason) {
 }
 
 async function boot() {
-  const [{ createWorld }, { bindScroll }, { initInteract }, { initSound }] = await Promise.all([
-    import('./world.js'), import('./scroll.js'), import('./interact.js'), import('./audio.js'),
+  const [{ createWorld }, { bindScroll }, { initInteract }, { initSound }, { initGlitches }] = await Promise.all([
+    import('./world.js'), import('./scroll.js'), import('./interact.js'), import('./audio.js'), import('./glitch.js'),
   ])
   const { ScrollTrigger } = await import('gsap/ScrollTrigger')
   const sound = initSound()
@@ -103,6 +103,7 @@ async function boot() {
   await world.loadFirst()
   const scroll = bindScroll(world, { motion, fineMotion: fine && tier === 'high', onRoom: (r) => sound.setRoom(r), onNoclip: noclipFx })
   initInteract(world, scroll, { motion, fine })
+  initGlitches(world, { motion, tier })
   await finishLoading()
   world.loadRest().catch((err) => console.warn(err))
 }

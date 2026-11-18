@@ -95,7 +95,7 @@ let offsetOn = false
     const r = roomAt(cam.position.z)
     if (r !== room) { room = r; onRoom?.(r) }
     onNoclip?.(noclip(cam.position.z))
-    world.tick?.(t, dt / 1000)
+    for (const fn of world.ticks) fn(t, dt / 1000)
     world.render(dt / 1000)
   })
 

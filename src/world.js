@@ -31,7 +31,7 @@ export function createWorld(canvas, tier) {
 
   const gltf = new GLTFLoader()
   const tex = new THREE.TextureLoader()
-  const hotspots = [], spots = [], neons = []
+  const hotspots = [], spots = [], neons = [], glitches = []
   let entity = null
 
   async function loadRoom(i) {
@@ -64,6 +64,7 @@ export function createWorld(canvas, tier) {
       src.dispose()
       o.userData.room = i
       if (o.userData.hotspot) hotspots.push(o)
+      if (o.userData.glitch) glitches.push(o)
     })
     scene.add(root)
     await renderer.compileAsync(root, camera, scene)
@@ -109,7 +110,8 @@ export function createWorld(canvas, tier) {
   }
 
   const api = {
-    renderer, scene, camera, hotspots, spots, neons, entity,
+    renderer, scene, camera, hotspots, spots, neons, glitches, entity,
+    ticks: [], // per-frame hooks (t, dt), called by scroll.js
     composer: null,
     // First room + entity block the loader; the others stream in afterwards.
     async loadFirst() { await Promise.all([loadRoom(0), loadEntity()]) },

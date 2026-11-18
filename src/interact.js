@@ -91,7 +91,9 @@ export function initInteract(world, scroll, { motion, fine }) {
     btn.addEventListener('click', () => {
       const id = btn.dataset.hotspot
       if (id === 'entity') return activate('entity', world.entity)
-      activate(id, world.hotspots.find((o) => o.userData.hotspot === id) ?? null)
+      // glitch ids exist once per room: resolve inside the button's own section
+      const room = id.startsWith('glitch_') ? Number(btn.closest('[data-room]')?.dataset.room) : null
+      activate(id, world.hotspots.find((o) => o.userData.hotspot === id && (room === null || o.userData.room === room)) ?? null)
     })
   })
 
@@ -290,7 +292,7 @@ export function initInteract(world, scroll, { motion, fine }) {
   }
 
   let lastRoom = -1
-  world.tick = () => {
+  world.ticks.push(() => {
     const e = world.entity
     if (!e) return
     const cam = world.camera.position
@@ -306,5 +308,5 @@ export function initInteract(world, scroll, { motion, fine }) {
       if (d < MIN_ENTITY_DIST) { e.visible = false; if (!hidden) vanishEntity() } // fade tween still schedules the respawn
       else if (!hidden && d < FADE_DIST) vanishEntity() // start fading early so a fast scroll never gets close
     }
-  }
+  })
 }
