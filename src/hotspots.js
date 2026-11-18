@@ -18,7 +18,22 @@ export const HOTSPOTS = {
   glitch_missing: { title: 'Missing texture', body: 'Kotak magenta dan hitam ini tanda klasik game yang gagal menemukan texture-nya. Modelnya ada, tapi "kulitnya" hilang. Seolah dunia ini lupa seperti apa benda itu seharusnya terlihat.' },
 }
 
-export const ENTITY_INFO = {
-  title: 'Sosok di kejauhan',
-  body: 'Dalam cerita Backrooms, kamu nggak pernah benar-benar sendirian. Tapi sosok ini cuma mengamati dari jauh. Setiap kali kamu menyapanya, dia menghilang lalu muncul di tempat lain. Tenang, dia nggak pernah mendekat.',
+// Info cards for the four entities (3D click or their DOM button).
+export const ENTITIES = {
+  tall: {
+    title: 'Sosok di kejauhan',
+    body: 'Tinggi, kurus, tangannya kepanjangan, dan sedikit membungkuk. Kadang badannya seperti nge-glitch, meloncat sedikit dari tempatnya. Dalam cerita Backrooms kamu nggak pernah benar-benar sendirian, tapi sosok ini cuma mengamati dari jauh. Disapa, dia hilang. Tenang, dia nggak pernah mendekat.',
+  },
+  smiler: {
+    title: 'Mata di kegelapan',
+    body: 'Di kegelapan antar ruang, ada dua mata dan senyum lebar yang menyala. Di Backrooms Wiki, makhluk ini disebut Smiler: yang kelihatan cuma wajahnya, sisanya gelap total. Makin dekat kamu, makin pudar dia. Jangan dikejar.',
+  },
+  silhouette: {
+    title: 'Siluet di ujung lorong',
+    body: 'Di pintu ujung yang terbuka, ada seseorang berdiri diam. Bentuknya biasa saja, seperti orang pada umumnya, dan justru itu yang bikin merinding. Siapa yang masih di sekolah jam segini? Kalau kamu mendekat, siluetnya sudah nggak ada.',
+  },
+  partygoer: {
+    title: 'Sosok berwarna kuning',
+    body: 'Kostum kuning, kepala bulat, senyum lebar yang nggak pernah berubah. Di Backrooms Wiki, mereka disebut Partygoers, tamu pesta yang ingin kamu ikut "bersenang-senang". Dari atas eskalator, kepalanya pelan-pelan menoleh mengikuti kamu.',
+  },
 }

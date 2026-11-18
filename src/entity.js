@@ -12,3 +12,9 @@ export function chooseSpot(list, current, lastDist, rand) {
   const at = farther.findIndex((s) => s.i === current)
   return farther[at >= 0 ? nextSpot(at, farther.length, rand) : Math.floor(rand() * farther.length)]
 }
+
+/** d: distance to camera. Below `min` hide at once, inside `fade` start fading out. */
+export const visibility = (d, fade, min) => (d < min ? 'hide' : d < fade ? 'fade' : 'show')
+
+/** Smiler's z in the dark void after room r (0..2), just before the next room's entrance. */
+export const smilerZ = (r) => -(r + 1) * 60 + 3

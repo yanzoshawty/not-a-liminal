@@ -32,7 +32,8 @@ export function createWorld(canvas, tier) {
   const gltf = new GLTFLoader()
   const tex = new THREE.TextureLoader()
   const hotspots = [], spots = [], neons = [], glitches = []
-  let entity = null
+  const entities = {} // id -> root Object3D; entities.js adds the JS-built smiler
+  const anchors = {} // anchor_<id> empties, filled as rooms stream in
 
   async function loadRoom(i) {
     const name = ROOMS[i]
@@ -44,6 +45,7 @@ export function createWorld(canvas, tier) {
     root.position.z = -i * ROOM_GAP
     root.traverse((o) => {
       if (o.name.startsWith('spot_')) spots.push({ room: i, obj: o })
+      if (o.name.startsWith('anchor_')) anchors[o.name.slice(7)] = o
       if (!o.isMesh) return
       const src = o.material
       let m
@@ -70,18 +72,22 @@ export function createWorld(canvas, tier) {
     await renderer.compileAsync(root, camera, scene)
   }
 
-  async function loadEntity() {
-    const g = await gltf.loadAsync(asset('entity.glb'))
-    entity = g.scene
-    entity.traverse((o) => {
-      if (o.isMesh) {
-        o.material = new THREE.MeshBasicMaterial({ color: 0x040404, transparent: true })
-        o.userData.entity = true
-      }
+  async function loadEntity(id) {
+    const root = (await gltf.loadAsync(asset(`${id}.glb`))).scene
+    root.traverse((o) => {
+      if (!o.isMesh) return
+      // Unlit: the partygoer keeps its yellow body + face texture, the others are near-black.
+      const src = o.material
+      o.material = id === 'partygoer'
+        ? new THREE.MeshBasicMaterial({ map: src.map, color: src.color, transparent: true })
+        : new THREE.MeshBasicMaterial({ color: 0x040404, transparent: true })
+      src.dispose()
+      o.userData.entity = id
     })
-    entity.userData.entity = true
-    scene.add(entity)
-    api.entity = entity
+    root.userData.entity = id
+    root.visible = false
+    scene.add(root)
+    entities[id] = root
   }
 
   const yieldFrame = () => new Promise((r) => setTimeout(r, 0))
@@ -110,11 +116,11 @@ export function createWorld(canvas, tier) {
   }
 
   const api = {
-    renderer, scene, camera, hotspots, spots, neons, glitches, entity,
+    renderer, scene, camera, hotspots, spots, neons, glitches, entities, anchors,
     ticks: [], // per-frame hooks (t, dt), called by scroll.js
     composer: null,
-    // First room + entity block the loader; the others stream in afterwards.
-    async loadFirst() { await Promise.all([loadRoom(0), loadEntity()]) },
+    // First room + entities block the loader; the other rooms stream in afterwards.
+    async loadFirst() { await Promise.all([loadRoom(0), ...['tall', 'silhouette', 'partygoer'].map(loadEntity)]) },
     async loadRest(onRoom) {
       for (let i = 1; i < ROOMS.length; i++) {
         await yieldFrame()

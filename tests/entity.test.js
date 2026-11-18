@@ -33,3 +33,15 @@ test('does not reuse the current spot when another qualifies', () => {
   const list = [{ i: 4, d: 30 }, { i: 7, d: 31 }]
   expect(chooseSpot(list, 4, 0, () => 0).i).toBe(7)
 })
+
+import { visibility, smilerZ } from '../src/entity.js'
+
+test('visibility: show far, fade inside the fade distance, hide below the minimum', () => {
+  expect(visibility(30, 20, 12)).toBe('show')
+  expect(visibility(15, 20, 12)).toBe('fade')
+  expect(visibility(5, 20, 12)).toBe('hide')
+})
+test('smiler sits in the void after room r', () => {
+  expect(smilerZ(0)).toBe(-57)
+  expect(smilerZ(2)).toBe(-177)
+})

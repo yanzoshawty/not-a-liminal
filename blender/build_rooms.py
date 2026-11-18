@@ -1,7 +1,7 @@
 """Procedurally build, light-bake and export the not-a-liminal rooms.
 
 Run inside Blender 4.5 (Text editor or MCP):
-    ROOM = 'backrooms'   # backrooms | pool | corridor | mall | entity | tall | silhouette | partygoer
+    ROOM = 'backrooms'   # backrooms | pool | corridor | mall | tall | silhouette | partygoer
     exec(open(r'<repo>/blender/build_rooms.py').read())
 
 Each room lives in its own scene ("nal_build"), so the user's open file is untouched.
@@ -728,15 +728,6 @@ def mall():
     glitch('double', 'white', mannequin, 8.0, 8.5, a=-R90)
     glitch('missing', 'red', vending, -10.0, 27.0, a=R90)
 
-def entity():
-    p = Part()
-    p.box((-0.16, -0.07, 0), (-0.06, 0.07, 1.15)).box((0.06, -0.07, 0), (0.16, 0.07, 1.15))  # legs
-    p.box((-0.2, -0.09, 1.1), (0.2, 0.09, 1.95))  # torso
-    p.box((-0.3, -0.05, 0.75), (-0.22, 0.05, 1.92)).box((0.22, -0.05, 0.7), (0.3, 0.05, 1.92))  # long arms
-    p.box((-0.05, -0.05, 1.95), (0.05, 0.05, 2.08))  # neck
-    p.sphere(0, 0, 2.22, 0.14, 0.9, 0.95, 1.25)  # faceless head
-    p.build('entity', material('entity', (0.015, 0.014, 0.013)), entity=1)
-
 # Entities: origin at the feet, facing Blender -Y, no bake (the runtime draws them unlit).
 def tall():
     """~2.6 m, emaciated, overlong limbs, slight forward hunch, small featureless head. Own design."""
@@ -786,7 +777,7 @@ def partygoer():
             c = head.data.vertices[head.data.loops[li].vertex_index].co
             uv[li].uv = (0.5 + c.x / (2 * R), 0.5 + (c.z - R) / (2 * R * 0.95)) if front else (0.02, 0.02)
 
-ENTITIES = ('entity', 'tall', 'silhouette', 'partygoer')
+ENTITIES = ('tall', 'silhouette', 'partygoer')
 
 # ---------------------------------------------------------------- bake + export
 def bake_lightmap(room):
