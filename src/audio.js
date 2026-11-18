@@ -1,4 +1,8 @@
-import { readSoundPref, writeSoundPref } from './prefs.js'
+import { readSoundPref, writeSoundPref, store } from './prefs.js'
+import { notify } from './notify.js'
+
+const AC = window.AudioContext || window.webkitAudioContext
+const FADE_IN = 4, FADE_OUT = 2 // seconds, symmetric enough to never feel abrupt
 
 // Per room: lowpass cutoff, reverb wet, fluorescent hum level.
 const ROOM_MIX = [
@@ -8,7 +12,6 @@ const ROOM_MIX = [
   { cut: 260, wet: 0.55, hum: 0.005 }, // mall: deep, hollow
 ]
 const VOLUME = 0.18
-const store = (() => { try { return localStorage } catch { return null } })()
 
 function impulse(ctx, seconds) {
   const len = Math.floor(ctx.sampleRate * seconds)
@@ -26,7 +29,7 @@ function createBgm() {
   let room = 0
 
   function build() {
-    ctx = new AudioContext()
+    ctx = new AC()
     master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination)
     filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.Q.value = 0.6
     const dry = ctx.createGain(); dry.gain.value = 0.7
@@ -72,14 +75,14 @@ function createBgm() {
       if (!ctx) build()
       await ctx.resume()
       master.gain.cancelScheduledValues(ctx.currentTime)
-      master.gain.setTargetAtTime(VOLUME, ctx.currentTime, 1.3) // ~4 s fade-in
+      master.gain.setTargetAtTime(VOLUME, ctx.currentTime, FADE_IN / 3) // ~95% after FADE_IN
       return ctx.state === 'running'
     },
     stop() {
       if (!ctx) return
       master.gain.cancelScheduledValues(ctx.currentTime)
-      master.gain.setTargetAtTime(0, ctx.currentTime, 0.3)
-      stopTimer = setTimeout(() => ctx.suspend(), 1200)
+      master.gain.setTargetAtTime(0, ctx.currentTime, FADE_OUT / 3)
+      stopTimer = setTimeout(() => ctx.suspend(), FADE_OUT * 1000 + 300)
     },
     setRoom(r) { room = r; if (ctx) apply(1.5) },
     suspend() { ctx?.suspend() },
@@ -89,16 +92,31 @@ function createBgm() {
 
 export function initSound() {
   const btn = document.getElementById('sound')
-  const label = btn.querySelector('.sound-label')
+  const label = btn.querySelector('.ctl-label')
   const bgm = createBgm()
   let on = false
+  let fadeTimer = 0
+
+  function unsupported(err) {
+    if (err) console.warn('audio unavailable', err)
+    on = false
+    btn.setAttribute('aria-pressed', 'false')
+    label.textContent = 'Suara: mati'
+    notify('Browser kamu belum mendukung suara latar (Web Audio). Semua yang lain tetap bisa dinikmati.')
+    return false
+  }
 
   function set(next) {
+    if (next && !AC) return unsupported()
     on = next
     btn.setAttribute('aria-pressed', String(on))
     label.textContent = on ? 'Suara: nyala' : 'Suara: mati'
+    // icon pulses for as long as the volume is still ramping
+    btn.classList.add('fading')
+    clearTimeout(fadeTimer)
+    fadeTimer = setTimeout(() => btn.classList.remove('fading'), (on ? FADE_IN : FADE_OUT) * 1000)
     writeSoundPref(store, on)
-    return on ? bgm.start().catch((err) => { console.warn('audio unavailable', err); return false }) : bgm.stop()
+    return on ? bgm.start().catch(unsupported) : bgm.stop()
   }
 
   btn.addEventListener('click', () => set(!on))
@@ -106,7 +124,7 @@ export function initSound() {
   // Browsers block autoplay; honour a saved "on" at the first real activation gesture.
   // pointerdown does not unlock audio on touch screens, so use click/touchend/keydown and
   // keep listening until the context is actually running.
-  if (readSoundPref(store)) {
+  if (readSoundPref(store) && AC) {
     const events = ['click', 'touchend', 'keydown']
     const first = async (e) => {
       if (btn.contains(e.target)) return done() // the button handles itself

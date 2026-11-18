@@ -113,27 +113,50 @@ h3 { font-size: var(--step-1); }
 
 .hotspot-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; max-width: 62ch; }
 .seg:nth-of-type(odd) .hotspot-list { margin-left: auto; justify-content: flex-end; }
-.hotspot-list button, .sound, .back {
+.hotspot-list button, .ctl, .back {
   font: 500 0.9em var(--sans); color: var(--ink);
   min-height: 44px; padding: 10px 16px;
   background: var(--card-solid); border: 1px solid var(--line); border-radius: 999px;
   cursor: pointer; touch-action: manipulation;
   transition: border-color 0.2s, background-color 0.2s;
 }
-.hotspot-list button:hover, .sound:hover, .back:hover { border-color: var(--accent); }
+.hotspot-list button:hover, .ctl:hover, .back:hover { border-color: var(--accent); }
 
-.sound {
+.controls {
   position: fixed; z-index: 20;
   right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
-  display: inline-flex; align-items: center; gap: 8px;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: calc(100vw - 32px);
 }
-.sound .wave { opacity: 0.25; }
-.sound[aria-pressed="true"] { border-color: var(--accent); }
-.sound[aria-pressed="true"] .wave { opacity: 1; }
+.ctl { display: inline-flex; align-items: center; gap: 8px; }
+.ctl svg { opacity: 0.45; transition: opacity 0.8s var(--ease); }
+.ctl[aria-pressed="true"] { border-color: var(--accent); }
+.ctl[aria-pressed="true"] svg { opacity: 1; }
+.ctl .wave { transition: opacity 1.2s var(--ease), transform 1.2s var(--ease); transform-origin: 14px 12px; }
+.ctl[aria-pressed="false"] .wave { opacity: 0.15; transform: scaleX(0.6); }
+.ctl.fading .wave { animation: pulse 1.2s ease-in-out infinite; } /* while the audio fades in/out */
+@keyframes pulse { 50% { opacity: 0.35; } }
+@media (max-width: 520px) { .ctl-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .ctl { padding: 10px 12px; } }
+
+.toast {
+  position: fixed; z-index: 30; left: 50%; top: max(16px, env(safe-area-inset-top));
+  max-width: min(92vw, 34rem); padding: 12px 18px;
+  background: var(--card-solid); border: 1px solid var(--accent); border-radius: 12px;
+  opacity: 0; transform: translate(-50%, -12px); pointer-events: none;
+  transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Resize / rotate: cover the relayout, then fade back in. */
+.reflow {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+  background: rgb(11 10 8 / 0.92); opacity: 0; visibility: hidden;
+  transition: opacity 0.35s var(--ease), visibility 0.35s;
+}
+.reflow.show { opacity: 1; visibility: visible; }
 
 .no-webgl-note { display: none; }
 .no-webgl .no-webgl-note { display: block; position: relative; z-index: 3; margin: 16px var(--gutter); color: var(--muted); }
-.no-webgl #world { display: none; }
+.no-webgl #world, .no-webgl #entity-toggle { display: none; }
 
 dialog {
   width: min(92vw, 34rem);
@@ -145,7 +168,6 @@ dialog::backdrop { background: rgb(0 0 0 / 0.35); }
 dialog[open] { animation: rise 0.45s var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
 
-@media (prefers-reduced-motion: reduce) {
-  .loader-line, .grain, dialog[open] { animation: none; }
-  #loader { transition-duration: 0.3s; }
-}
+/* Set by JS from the OS setting or the "Gerak" button. */
+.reduce-motion .loader-line, .reduce-motion .grain, .reduce-motion dialog[open], .reduce-motion .ctl.fading .wave { animation: none; }
+.reduce-motion #loader, .reduce-motion .reflow { transition-duration: 0.2s; }

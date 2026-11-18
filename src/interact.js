@@ -2,29 +2,40 @@ import { gsap } from 'gsap'
 import { Raycaster, Vector2, Vector3, Box3, RingGeometry, MeshBasicMaterial, Mesh } from 'three'
 import { HOTSPOTS, ENTITY_INFO } from './hotspots.js'
 import { chooseSpot } from './entity.js'
+import { ROOM_GAP, ROOM_COUNT } from './path.js'
+import { readFlag, writeFlag, store } from './prefs.js'
+import { notify } from './notify.js'
 
 const MIN_ENTITY_DIST = 12 // the entity is never visible closer than this to the camera
 const FADE_DIST = 20 // fading starts here
+const NEXT_ROOM_CHANCE = 0.35 // how often it waits at the threshold of the next room instead
+const canDialog = typeof HTMLDialogElement === 'function' && 'showModal' in HTMLDialogElement.prototype
+
+/** Fill and open the info card; on browsers without <dialog> show the text as a toast instead. */
+function openCard(info) {
+  document.getElementById('info-title').textContent = info.title
+  document.getElementById('info-body').textContent = info.body
+  if (canDialog) { document.getElementById('info').showModal(); return true }
+  notify(`${info.title}: ${info.body}`, 10000)
+  return false
+}
 
 /** No-WebGL fallback: hotspot buttons still open their info card. */
 export function initTextOnly() {
   const dialog = document.getElementById('info')
   document.getElementById('info-close').addEventListener('click', () => dialog.close())
   document.querySelectorAll('[data-hotspot]').forEach((btn) => btn.addEventListener('click', () => {
-    const info = btn.dataset.hotspot === 'entity' ? ENTITY_INFO : HOTSPOTS[btn.dataset.hotspot]
-    document.getElementById('info-title').textContent = info.title
-    document.getElementById('info-body').textContent = info.body
-    dialog.showModal()
+    openCard(btn.dataset.hotspot === 'entity' ? ENTITY_INFO : HOTSPOTS[btn.dataset.hotspot])
   }))
 }
 
-export function initInteract(world, scroll, { reduceMotion, fine }) {
+// motion: { reduced } is read live, so the "Gerak" button applies without reload.
+export function initInteract(world, scroll, { motion, fine }) {
   const ray = new Raycaster()
   ray.far = 45
   const ndc = new Vector2()
   const dialog = document.getElementById('info')
-  const titleEl = document.getElementById('info-title')
-  const bodyEl = document.getElementById('info-body')
+  const dur = (s) => (motion.reduced ? 0 : s)
   let busy = false
   let hovered = null
   let entitySeen = false
@@ -41,7 +52,7 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
     const id = hit.object.userData.hotspot
     return id ? { id, obj: hit.object, point: hit.point } : null
   }
-  const blocked = (t) => t.closest?.('.card, button, a, dialog, .hotspot-list')
+  const blocked = (t) => t.closest?.('.card, button, a, dialog, .hotspot-list, .controls')
 
   addEventListener('click', (e) => {
     if (busy || blocked(e.target)) return
@@ -100,47 +111,42 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
 
   function showInfo(info) {
     busy = true
-    titleEl.textContent = info.title
-    bodyEl.textContent = info.body
-    dialog.showModal()
+    if (!openCard(info)) setTimeout(closeFlow, 2500) // no <dialog>: let the camera linger, then return
   }
 
   function focusOn(obj) {
     scroll.lock()
-    const cam = world.camera
-    const from = scroll.pose(scroll.progressY())
-    const state = { pos: cam.position.clone(), look: from.look.clone() }
-    scroll.setOverride(state)
     const box = new Box3().setFromObject(obj)
     const center = box.getCenter(new Vector3())
     const radius = box.getSize(new Vector3()).length() / 2
-    const dir = state.pos.clone().sub(center).setY(0)
+    const dir = scroll.camera().clone().sub(center).setY(0)
     const horiz = dir.length()
     dir.normalize()
     // Stay between the camera and the object so we never cross a wall.
     const dist = Math.min(gsap.utils.clamp(1.8, 4.5, radius * 1.4), horiz * 0.85)
     const to = center.clone().addScaledVector(dir, dist)
     to.y = gsap.utils.clamp(1.2, 2.3, center.y + 0.3)
-    const d = reduceMotion ? 0 : 1.2
-    gsap.to(state.pos, { x: to.x, y: to.y, z: to.z, duration: d, ease: 'power2.inOut', overwrite: true })
-    gsap.to(state.look, { x: center.x, y: center.y, z: center.z, duration: d, ease: 'power2.inOut', overwrite: true })
-    onClose = () => {
-      const back = scroll.pose(scroll.progressY())
-      const tl = gsap.timeline({ onComplete: () => { scroll.unlock(); busy = false } })
-      tl.to(state.pos, { x: back.pos.x, y: back.pos.y, z: back.pos.z, duration: d * 0.8, ease: 'power2.inOut', overwrite: true }, 0)
-      tl.to(state.look, { x: back.look.x, y: back.look.y, z: back.look.z, duration: d * 0.8, ease: 'power2.inOut', overwrite: true }, 0)
-    }
+    // Blend over the live pose (sway, mouse, scroll), so leaving focus lands exactly where the
+    // free camera already is: no snap at the end.
+    const focus = { pos: to, look: center, blend: 0 }
+    scroll.setFocus(focus)
+    gsap.to(focus, { blend: 1, duration: dur(1.2), ease: 'power2.inOut' })
+    onClose = () => gsap.to(focus, {
+      blend: 0, duration: dur(1.1), ease: 'power2.inOut', overwrite: true,
+      onComplete: () => { scroll.unlock(); busy = false },
+    })
   }
 
-  document.getElementById('info-close').addEventListener('click', () => dialog.close())
-  dialog.addEventListener('close', () => {
+  function closeFlow() {
     const fn = onClose
     onClose = null
     undo?.()
     undo = null
     if (fn) fn()
     else busy = false
-  })
+  }
+  document.getElementById('info-close').addEventListener('click', () => dialog.close())
+  dialog.addEventListener('close', closeFlow)
 
   // ---------------------------------------------------------- reactions
   let undo = null
@@ -150,17 +156,17 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
     const base = obj.userData.baseColor
     const c = obj.material.color
     if (id === 'lamp' || id === 'exit_sign') {
-      if (reduceMotion) return
+      if (motion.reduced) return
       const tl = gsap.timeline({ onComplete: () => c.copy(base) })
       ;[0.1, 1, 0.3, 1, 0.05, 0.8, 1].forEach((k, i) => tl.call(() => c.copy(base).multiplyScalar(k), null, i * 0.09 + (i > 3 ? 0.25 : 0)))
     } else if (id === 'door') {
       obj.userData.baseZ ??= obj.position.z // absolute targets: an interrupted open/close can't drift
-      gsap.to(obj.position, { z: obj.userData.baseZ - 0.85, duration: reduceMotion ? 0 : 1.6, ease: 'power2.inOut', overwrite: true })
-      undo = () => gsap.to(obj.position, { z: obj.userData.baseZ, duration: reduceMotion ? 0 : 1.2, ease: 'power2.inOut', overwrite: true })
+      gsap.to(obj.position, { z: obj.userData.baseZ - 0.85, duration: dur(1.6), ease: 'power2.inOut', overwrite: true })
+      undo = () => gsap.to(obj.position, { z: obj.userData.baseZ, duration: dur(1.2), ease: 'power2.inOut', overwrite: true })
     } else if (id === 'water') {
-      ripple(point ?? new Box3().setFromObject(obj).getCenter(new Vector3()), obj.position.y)
+      ripple(point ?? new Box3().setFromObject(obj).getCenter(new Vector3()))
     } else if (id === 'escalator') {
-      if (!reduceMotion) gsap.fromTo(obj.position, { y: 0 }, { y: 0.015, duration: 0.06, repeat: 9, yoyo: true, ease: 'none', delay: 0.4 })
+      if (!motion.reduced) gsap.fromTo(obj.position, { y: 0 }, { y: 0.015, duration: 0.06, repeat: 9, yoyo: true, ease: 'none', delay: 0.4 })
     } else {
       gsap.timeline().to(c, { r: base.r * 1.4, g: base.g * 1.4, b: base.b * 1.4, duration: 0.5, ease: 'sine.out' })
         .to(c, { r: base.r, g: base.g, b: base.b, duration: 1.2, ease: 'sine.inOut' })
@@ -175,17 +181,19 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
       m.position.set(at.x, at.y + 0.01, at.z)
       world.scene.add(m)
       gsap.timeline({ delay: i * 0.35, onComplete: () => { world.scene.remove(m); m.material.dispose() } })
-        .to(m.scale, { x: 22, y: 22, duration: reduceMotion ? 0.01 : 2.6, ease: 'power1.out' }, 0)
-        .to(m.material, { opacity: 0, duration: reduceMotion ? 0.01 : 2.6, ease: 'power1.in' }, 0)
+        .to(m.scale, { x: 22, y: 22, duration: dur(2.6) || 0.01, ease: 'power1.out' }, 0)
+        .to(m.material, { opacity: 0, duration: dur(2.6) || 0.01, ease: 'power1.in' }, 0)
     }
   }
 
   // ---------------------------------------------------------- entity
   const tmp = new Vector3()
-  let current = null // index into world.spots
+  let current = null // index into world.spots, or -1 for the next-room threshold
   let lastDist = 0 // distance at the last spawn; reset per room
   let hidden = true
+  let entityRoom = -1
   let respawnCall = null
+  let entityOn = readFlag(store, 'nal:entity', true)
 
   function entityMats() {
     const mats = []
@@ -197,23 +205,41 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
     const cam = world.camera.position
     return world.spots
       .map((s, i) => ({ i, p: s.obj.getWorldPosition(new Vector3()), room: s.room }))
-      .filter((s) => s.room === scroll.room && s.p.distanceTo(cam) >= FADE_DIST + 4 && s.p.distanceTo(cam) <= 40)
+      .map((s) => ({ ...s, d: s.p.distanceTo(cam) }))
+      .filter((s) => s.room === scroll.room && s.d >= FADE_DIST + 4 && s.d <= 40)
+  }
+
+  // Just inside the next room's entrance, on the doorway axis: visible as a faint silhouette
+  // straight through both doors while you are still in the current room.
+  function threshold() {
+    const r = scroll.room
+    const cam = world.camera.position
+    const inRoom = -cam.z - r * ROOM_GAP
+    if (r >= ROOM_COUNT - 1 || inRoom > 24 || !world.spots.some((s) => s.room === r + 1)) return null
+    const p = new Vector3(0, 0, -(r + 1) * ROOM_GAP - 3)
+    return { i: -1, p, room: r + 1, d: p.distanceTo(cam) }
   }
 
   function placeEntity() {
-    const cam = world.camera.position
-    const list = candidates().map((s) => ({ ...s, d: s.p.distanceTo(cam) }))
-    if (!world.entity || !list.length) { respawnCall = gsap.delayedCall(3, placeEntity); return }
-    const s = chooseSpot(list, current, lastDist, Math.random) // never reappears closer than before
+    if (!entityOn || !world.entity) return
+    const list = candidates()
+    const next = threshold()
+    const s = next && (Math.random() < NEXT_ROOM_CHANCE || !list.length) ? next
+      : list.length ? chooseSpot(list, current, lastDist, Math.random) // never reappears closer than before
+      : null
+    if (!s) { respawnCall = gsap.delayedCall(3, placeEntity); return }
     current = s.i
     lastDist = s.d
+    entityRoom = s.room
+    const far = s.room !== scroll.room
+    entityMats().forEach((m) => { m.fog = !far; m.needsUpdate = true }) // fog would erase it at 50+ m
     world.entity.position.copy(s.p)
     world.entity.visible = true
     hidden = false
-    gsap.to(entityMats(), { opacity: 0.92, duration: reduceMotion ? 0.3 : 3, ease: 'sine.inOut', overwrite: true })
+    gsap.to(entityMats(), { opacity: far ? 0.55 : 0.92, duration: motion.reduced ? 0.3 : 3, ease: 'sine.inOut', overwrite: true })
   }
 
-  function vanishEntity() {
+  function vanishEntity(respawn = true) {
     if (!world.entity || hidden) return
     hidden = true
     respawnCall?.kill()
@@ -221,15 +247,28 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
       opacity: 0, duration: 0.8, ease: 'power2.in', overwrite: true,
       onComplete: () => {
         world.entity.visible = false
-        respawnCall = gsap.delayedCall(gsap.utils.random(4, 8), placeEntity)
+        if (respawn) respawnCall = gsap.delayedCall(gsap.utils.random(4, 8), placeEntity)
       },
     })
   }
 
+  // "Sosok: tampil / sembunyi" button, remembered per browser.
+  const toggle = document.getElementById('entity-toggle')
+  const label = toggle.querySelector('.ctl-label')
+  function setEntity(on) {
+    entityOn = on
+    writeFlag(store, 'nal:entity', on)
+    toggle.setAttribute('aria-pressed', String(on))
+    label.textContent = on ? 'Sosok: tampil' : 'Sosok: sembunyi'
+    if (on) { respawnCall?.kill(); respawnCall = gsap.delayedCall(1, placeEntity) }
+    else { respawnCall?.kill(); vanishEntity(false) }
+  }
+  toggle.addEventListener('click', () => setEntity(!entityOn))
+
   if (world.entity) {
     world.entity.visible = false
     entityMats().forEach((m) => { m.opacity = 0 })
-    respawnCall = gsap.delayedCall(2.5, placeEntity)
+    setEntity(entityOn)
   }
 
   let lastRoom = -1
@@ -240,7 +279,7 @@ export function initInteract(world, scroll, { reduceMotion, fine }) {
     if (scroll.room !== lastRoom) {
       lastRoom = scroll.room
       lastDist = 0
-      if (!hidden) vanishEntity()
+      if (!hidden && entityRoom !== scroll.room) vanishEntity()
     }
     if (e.visible) {
       tmp.copy(cam).sub(e.position)

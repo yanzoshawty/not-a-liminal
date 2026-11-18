@@ -22,7 +22,7 @@ const FilmShader = {
     }`,
 }
 
-export function createPost(world, reduceMotion) {
+export function createPost(world, motion) {
   const { renderer, scene, camera } = world
   const size = renderer.getSize(new Vector2())
   const composer = new EffectComposer(renderer)
@@ -30,9 +30,12 @@ export function createPost(world, reduceMotion) {
   composer.addPass(new UnrealBloomPass(new Vector2(size.x / 2, size.y / 2), 0.6, 0.5, 2.5)) // threshold above lit walls: only neon blooms
   composer.addPass(new OutputPass())
   const film = new ShaderPass(FilmShader)
-  film.uniforms.uMotion.value = reduceMotion ? 0 : 1 // static grain when motion is reduced
   composer.addPass(film)
   const render = composer.render.bind(composer)
-  composer.render = (dt) => { film.uniforms.uTime.value += dt || 0.016; render(dt) }
+  composer.render = (dt) => {
+    film.uniforms.uMotion.value = motion.reduced ? 0 : 1 // static grain when motion is reduced
+    film.uniforms.uTime.value += dt || 0.016
+    render(dt)
+  }
   return composer
 }

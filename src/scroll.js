@@ -19,13 +19,14 @@ const SPEC = [
   [6, 0.4, 0, 1.8, -212], [6, 1, 0, 1.8, -224],
 ]
 
-export function bindScroll(world, { reduceMotion, fineMotion, onRoom }) {
+// motion: { reduced } read live every frame, so the "Gerak" button applies instantly.
+export function bindScroll(world, { motion, fineMotion, onRoom }) {
   const sections = gsap.utils.toArray('main > section')
   let keys = []
   const proxy = { y: scrollY }
   const mouse = { x: 0, y: 0 }
   let locked = false
-  let override = null
+  let focus = null // { pos, look, blend 0..1 }: blended over the live pose, never replaces it
   let room = -1
 
   function buildKeys() {
@@ -36,11 +37,16 @@ export function bindScroll(world, { reduceMotion, fineMotion, onRoom }) {
     keys[keys.length - 1][0] = max
   }
 
-  const yTo = gsap.quickTo(proxy, 'y', { duration: reduceMotion ? 0.15 : 1.2, ease: 'power3' })
+  const yTo = gsap.quickTo(proxy, 'y', { duration: 1.2, ease: 'power3' })
   const mx = gsap.quickTo(mouse, 'x', { duration: 1.6, ease: 'power2' })
   const my = gsap.quickTo(mouse, 'y', { duration: 1.6, ease: 'power2' })
+  const follow = (y) => {
+    if (!motion.reduced) return yTo(y)
+    gsap.killTweensOf(proxy) // reduced: camera tracks scroll directly, no glide
+    proxy.y = y
+  }
 
-  ScrollTrigger.create({ start: 0, end: 'max', onUpdate: (self) => { if (!locked) yTo(self.scroll()) } })
+  ScrollTrigger.create({ start: 0, end: 'max', onUpdate: (self) => { if (!locked) follow(self.scroll()) } })
   ScrollTrigger.addEventListener('refreshInit', buildKeys)
   buildKeys()
 
@@ -64,20 +70,19 @@ export function bindScroll(world, { reduceMotion, fineMotion, onRoom }) {
   gsap.ticker.add((_, dt) => {
     t += dt / 1000
     const cam = world.camera
-    if (override) {
-      cam.position.copy(override.pos)
-      cam.lookAt(override.look)
-    } else {
-      pose()
-      if (!reduceMotion) {
-        pos.y += Math.sin(t * 0.8) * 0.015
-        pos.x += Math.sin(t * 0.5) * 0.02
-        look.x += mouse.x * 0.6
-        look.y -= mouse.y * 0.3
-      }
-      cam.position.copy(pos)
-      cam.lookAt(look)
+    pose()
+    if (!motion.reduced) {
+      pos.y += Math.sin(t * 0.8) * 0.015
+      pos.x += Math.sin(t * 0.5) * 0.02
+      look.x += mouse.x * 0.6
+      look.y -= mouse.y * 0.3
     }
+    if (focus) {
+      pos.lerp(focus.pos, focus.blend)
+      look.lerp(focus.look, focus.blend)
+    }
+    cam.position.copy(pos)
+    cam.lookAt(look)
     world.updateFog(cam.position.z)
     const r = roomAt(cam.position.z)
     if (r !== room) { room = r; onRoom?.(r) }
@@ -85,28 +90,34 @@ export function bindScroll(world, { reduceMotion, fineMotion, onRoom }) {
     world.render(dt / 1000)
   })
 
-  revealCards(reduceMotion)
+  revealCards(motion)
 
   return {
     pose: (y) => pose(y, new Vector3(), new Vector3()),
-    progressY: () => proxy.y,
-    setOverride(o) { override = o },
+    camera: () => world.camera.position,
+    setFocus(f) { focus = f },
     lock() { locked = true; document.documentElement.classList.add('locked') },
-    unlock() { locked = false; override = null; document.documentElement.classList.remove('locked') },
+    unlock() {
+      locked = false
+      focus = null
+      document.documentElement.classList.remove('locked')
+      proxy.y = scrollY // resync if the page resized/scrolled while the dialog was open
+    },
     get room() { return room },
   }
 }
 
-function revealCards(reduceMotion) {
+function revealCards(motion) {
   // opacity only (not autoAlpha): hidden-by-visibility buttons could not be reached by Tab / TV remote
   const els = gsap.utils.toArray('main .card, main .hotspot-list')
-  if (reduceMotion) return
-  gsap.set(els, { opacity: 0, y: 28 })
+  const show = { opacity: 1, y: 0 }
+  if (!motion.reduced) gsap.set(els, { opacity: 0, y: 28 })
   ScrollTrigger.batch(els, {
     start: 'top 88%',
-    onEnter: (b) => gsap.to(b, { opacity: 1, y: 0, duration: 1.1, ease: 'power3.out', stagger: 0.08, overwrite: true }),
-    onLeaveBack: (b) => gsap.to(b, { opacity: 0, y: 28, duration: 0.5, ease: 'power2.in', overwrite: true }),
+    onEnter: (b) => motion.reduced ? gsap.set(b, show) : gsap.to(b, { ...show, duration: 1.1, ease: 'power3.out', stagger: 0.08, overwrite: true }),
+    onLeaveBack: (b) => motion.reduced ? gsap.set(b, show) : gsap.to(b, { opacity: 0, y: 28, duration: 0.5, ease: 'power2.in', overwrite: true }),
   })
+  motion.onChange?.push((reduced) => { if (reduced) gsap.set(els, { ...show, overwrite: true }) })
   // keyboard focus landing on a not-yet-revealed element shows it at once
   addEventListener('focusin', (e) => {
     const el = e.target.closest?.('.card, .hotspot-list')

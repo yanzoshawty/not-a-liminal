@@ -21,3 +21,17 @@ test('stored "1" reads as on, round trip works', () => {
 test('missing storage (null) reads as off', () => {
   expect(readSoundPref(null)).toBe(false)
 })
+
+import { readFlag, writeFlag } from '../src/prefs.js'
+
+test('readFlag falls back when unset or storage blocked', () => {
+  expect(readFlag(throwing, 'nal:entity', true)).toBe(true)
+  expect(readFlag(null, 'nal:motion', false)).toBe(false)
+})
+test('writeFlag/readFlag round trip overrides the fallback', () => {
+  const mem = new Map()
+  const store = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) }
+  writeFlag(store, 'nal:entity', false)
+  expect(readFlag(store, 'nal:entity', true)).toBe(false)
+  expect(() => writeFlag(throwing, 'nal:entity', true)).not.toThrow()
+})
