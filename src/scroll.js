@@ -9,7 +9,7 @@ const H = 1.6
 // [section index, fraction of the section, x, y, z] in three.js world space.
 // Sections: 0 hero, 1 intro, 2 backrooms, 3 pool, 4 corridor, 5 mall, 6 outro.
 // Each room is fully visible while its card is on screen; the dark gap is crossed in the
-// last ~20% of the previous section.
+// last ~30% of the previous section.
 const SPEC = [
   [0, 0, 0, H, -0.6], [1, 0, 0, H, -2], [2, 0, 0, H, -6], [2, 0.7, 0, H, -29],
   [3, 0, 0, 1.9, -61], [3, 0.7, 0, 1.9, -87],
@@ -28,6 +28,7 @@ export function bindScroll(world, { motion, fineMotion, onRoom }) {
   let locked = false
   let focus = null // { pos, look, blend 0..1 }: blended over the live pose, never replaces it
   let room = -1
+let offsetOn = false
 
   function buildKeys() {
     const max = ScrollTrigger.maxScroll(window)
@@ -80,6 +81,13 @@ export function bindScroll(world, { motion, fineMotion, onRoom }) {
     if (focus) {
       pos.lerp(focus.pos, focus.blend)
       look.lerp(focus.look, focus.blend)
+      // shifts the projection so the framed object sits in the screen area the dialog leaves free
+      const w = innerWidth, h = innerHeight
+      cam.setViewOffset(w, h, focus.offX * focus.blend, focus.offY * focus.blend, w, h)
+      offsetOn = true
+    } else if (offsetOn) {
+      cam.clearViewOffset()
+      offsetOn = false
     }
     cam.position.copy(pos)
     cam.lookAt(look)

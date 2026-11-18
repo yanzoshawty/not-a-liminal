@@ -40,6 +40,8 @@ export function initInteract(world, scroll, { motion, fine }) {
   let hovered = null
   let entitySeen = false
   let onClose = null
+  let onResize = null
+  addEventListener('resize', () => onResize?.())
 
   // ---------------------------------------------------------- picking
   function pick(x, y) {
@@ -104,9 +106,9 @@ export function initInteract(world, scroll, { motion, fine }) {
     }
     busy = true
     setHover(null)
-    if (obj) focusOn(obj)
     react(id, obj, point)
     showInfo(HOTSPOTS[id])
+    if (obj) focusOn(obj) // after showInfo: needs the open dialog's rect
   }
 
   function showInfo(info) {
@@ -128,13 +130,27 @@ export function initInteract(world, scroll, { motion, fine }) {
     to.y = gsap.utils.clamp(1.2, 2.3, center.y + 0.3)
     // Blend over the live pose (sway, mouse, scroll), so leaving focus lands exactly where the
     // free camera already is: no snap at the end.
-    const focus = { pos: to, look: center, blend: 0 }
+    const focus = { pos: to, look: center, blend: 0, offX: 0, offY: 0 }
+    // Shift the view so the object is centred in the area the dialog leaves free.
+    const measure = () => {
+      const r = dialog.open ? dialog.getBoundingClientRect() : { width: 0, height: 0 }
+      const side = innerWidth >= 900
+      focus.offX = side ? r.width / 2 + 12 : 0
+      focus.offY = side ? 0 : r.height / 2
+    }
+    measure()
+    onResize = measure
+    document.documentElement.classList.add('focusing')
     scroll.setFocus(focus)
-    gsap.to(focus, { blend: 1, duration: dur(1.2), ease: 'power2.inOut' })
-    onClose = () => gsap.to(focus, {
-      blend: 0, duration: dur(1.1), ease: 'power2.inOut', overwrite: true,
-      onComplete: () => { scroll.unlock(); busy = false },
-    })
+    gsap.to(focus, { blend: 1, duration: dur(2.2), ease: 'power2.inOut' })
+    onClose = () => {
+      onResize = null
+      document.documentElement.classList.remove('focusing')
+      gsap.to(focus, {
+        blend: 0, duration: dur(1.8), ease: 'power2.inOut', overwrite: true,
+        onComplete: () => { scroll.unlock(); busy = false },
+      })
+    }
   }
 
   function closeFlow() {
