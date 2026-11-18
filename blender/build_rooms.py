@@ -1,7 +1,7 @@
 """Procedurally build, light-bake and export the not-a-liminal rooms.
 
 Run inside Blender 4.5 (Text editor or MCP):
-    ROOM = 'backrooms'   # backrooms | pool | corridor | mall | entity
+    ROOM = 'backrooms'   # backrooms | pool | corridor | mall | entity | tall | silhouette | partygoer
     exec(open(r'<repo>/blender/build_rooms.py').read())
 
 Each room lives in its own scene ("nal_build"), so the user's open file is untouched.
@@ -11,6 +11,7 @@ plus src/models/<room>_lm.webp (sRGB-encoded irradiance) and an entry in lightma
 """
 import bpy, bmesh, math, os, json
 import numpy as np
+from mathutils import Matrix, Vector
 
 HERE = os.path.dirname(os.path.abspath(globals().get('__file__', r'C:\Users\yeet\OneDrive\Documents\yeet source project\not-a-liminal\blender\build_rooms.py')))
 OUT = os.path.normpath(os.path.join(HERE, '..', 'src', 'models'))
@@ -106,6 +107,11 @@ TEX = {
     'shutter': lambda s=256: tint((0.52, 0.53, 0.52), (0.82 + 0.18 * np.cos(np.arange(s)[:, None] / s * 2 * np.pi * 24)) * (0.9 + 0.1 * noise(s, 2))),
     'mallfloor': lambda s=256: tint((0.74, 0.70, 0.63), np.where(grid(s, 1, 0.02), 0.6, 0.9 + 0.1 * noise(s, 4))),
     'wood': lambda s=256: tint((0.40, 0.25, 0.14), 0.85 + 0.2 * blur(rng.random((s, s)), 1).repeat(1, 0)[:, :1].repeat(s, 1).T),
+    # yellow face, two black eyes, very wide open grin (pixel row 0 = bottom, so v points up)
+    'partyface': lambda s=256: (lambda u, v: tint((1.0, 0.84, 0.08), np.where(
+        ((u - 0.35) ** 2 + (v - 0.63) ** 2 < 0.055 ** 2) | ((u - 0.65) ** 2 + (v - 0.63) ** 2 < 0.055 ** 2)
+        | ((((u - 0.5) / 0.4) ** 2 + ((v - 0.46) / 0.24) ** 2 < 1) & (v < 0.46 + 0.05 * ((u - 0.5) / 0.4) ** 2)), 0.02, 1.0)))(
+        *np.meshgrid(np.arange(s) / s, np.arange(s) / s)),
 }
 
 # ---------------------------------------------------------------- materials
@@ -176,6 +182,43 @@ class Part:
             vv.co.x = vv.co.x * sx + cx; vv.co.y = vv.co.y * sy + cy; vv.co.z = vv.co.z * sz + cz
         return self
 
+    def seg(self, a, b, r1, r2=None, segs=8):
+        """Tapered cylinder from point a (radius r1) to point b (radius r2)."""
+        a, b = Vector(a), Vector(b)
+        d = b - a
+        M = Matrix.Translation((a + b) / 2) @ d.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+        bmesh.ops.create_cone(self.bm, cap_ends=True, segments=segs, radius1=r1, radius2=r1 if r2 is None else r2,
+                              depth=d.length, matrix=M)
+        return self
+
+    def torus(self, R, r, cz=0.0, segs=16, rsegs=8):
+        """Flat ring around the Z axis, centred at height cz."""
+        v = [[self.bm.verts.new(((R + r * math.cos(p)) * math.cos(t), (R + r * math.cos(p)) * math.sin(t), cz + r * math.sin(p)))
+              for p in (2 * math.pi * j / rsegs for j in range(rsegs))] for t in (2 * math.pi * i / segs for i in range(segs))]
+        for i in range(segs):
+            for j in range(rsegs):
+                i1, j1 = (i + 1) % segs, (j + 1) % rsegs
+                self.bm.faces.new((v[i][j], v[i1][j], v[i1][j1], v[i][j1]))
+        return self
+
+    def text(self, s, width, M):
+        """Blender text object -> mesh, scaled to `width`, laid on local XY (normal +Z), then transformed by M."""
+        cu = bpy.data.curves.new('txt', type='FONT')
+        cu.body, cu.align_x, cu.align_y, cu.resolution_u = s, 'CENTER', 'CENTER', 3
+        ob = bpy.data.objects.new('txt', cu)
+        bpy.context.scene.collection.objects.link(ob)
+        me = bpy.data.meshes.new_from_object(ob.evaluated_get(bpy.context.evaluated_depsgraph_get()))
+        tmp = bmesh.new(); tmp.from_mesh(me)
+        xs = [v.co.x for v in tmp.verts]
+        k = width / (max(xs) - min(xs))
+        M = M @ Matrix.Scale(k, 4)
+        vm = {v: self.bm.verts.new(M @ v.co) for v in tmp.verts}
+        for f in tmp.faces:
+            self.bm.faces.new([vm[v] for v in f.verts])
+        tmp.free()
+        bpy.data.objects.remove(ob); bpy.data.curves.remove(cu); bpy.data.meshes.remove(me)
+        return self
+
     def build(self, name, mat, tile=(1.0, 1.0), **props):
         bm = self.bm  # winding is authored outward/inward by hand; recalc would flip lone quads
         bm.normal_update()
@@ -233,6 +276,212 @@ def end_wall(p, y, x0, x1, h, gap=1.2, door_h=2.2, t=0.2):
 NEON = lambda: material('neon', (1, 1, 1), emit=(1.0, 0.96, 0.82), strength=12)
 NEON_OFF = lambda: material('neon_off', (0.55, 0.55, 0.5))
 
+def empty(name, x, y, z=0.0):
+    e = bpy.data.objects.new(name, None)
+    e.location = (x, y, z)
+    bpy.context.scene.collection.objects.link(e)
+
+# ---------------------------------------------------------------- props
+PMAT = {
+    'dark': lambda: material('p_dark', (0.06, 0.06, 0.065)),
+    'white': lambda: material('p_white', (0.85, 0.85, 0.82)),
+    'blue': lambda: material('p_blue', (0.30, 0.50, 0.78)),
+    'red': lambda: material('p_red', (0.72, 0.10, 0.08)),
+    'yellow': lambda: material('p_yellow', (0.92, 0.72, 0.08)),
+    'green': lambda: material('p_green', (0.16, 0.34, 0.14)),
+    'cardboard': lambda: material('p_cardboard', (0.55, 0.40, 0.24)),
+    'metal': lambda: material('p_metal', (0.45, 0.47, 0.48)),
+    'towel': lambda: material('p_towel', (0.82, 0.36, 0.30)),
+    'tarp': lambda: material('p_tarp', (0.15, 0.20, 0.32)),
+    'cork': lambda: material('p_cork', (0.60, 0.45, 0.30)),
+    'wood': lambda: material('wood', tex='wood'),
+    'chrome': lambda: material('chrome', (0.75, 0.77, 0.78)),
+}
+
+class Props:
+    """Parts keyed by material. Shapes are authored at the origin, front facing -Y, and placed with put().
+    one=True routes every material into a single Part (a glitch item must be one mesh)."""
+    def __init__(self, one=False):
+        self.parts, self.one = {}, one
+
+    def __getitem__(self, k):
+        k = '_' if self.one else k
+        if k not in self.parts:
+            self.parts[k] = Part()
+        return self.parts[k]
+
+    def put(self, fn, x=0.0, y=0.0, z=0.0, a=0.0, tilt=(0.0, 0.0), **kw):
+        old = {k: set(p.bm.verts) for k, p in self.parts.items()}  # not an index: bmesh ops reuse freed slots
+        fn(self, **kw)
+        M = Matrix.Translation((x, y, z)) @ Matrix.Rotation(a, 4, 'Z') @ Matrix.Rotation(tilt[0], 4, 'X') @ Matrix.Rotation(tilt[1], 4, 'Y')
+        for k, p in self.parts.items():
+            for v in p.bm.verts:
+                if v not in old.get(k, ()):
+                    v.co = M @ v.co
+        return self
+
+    def build(self, prefix):
+        for k, p in self.parts.items():
+            p.build(f'{prefix}_{k}', PMAT[k](), (0.9, 0.9) if k == 'wood' else (1.0, 1.0))
+
+def glitch(tag, mat, fn, x, y, z=0.0, a=0.0, tilt=(0.0, 0.0), **kw):
+    g = Props(one=True).put(fn, x, y, z, a, tilt, **kw)
+    g['_'].build('glitch_' + tag, PMAT[mat](), glitch=tag, hotspot='glitch_' + tag)
+
+R90 = math.pi / 2
+
+def office_chair(P):
+    d = P['dark']
+    d.box((-0.3, -0.03, 0), (0.3, 0.03, 0.05)).box((-0.03, -0.3, 0), (0.03, 0.3, 0.05))
+    d.cylinder(0, 0, 0.05, 0.03, 0.38, 8)
+    d.box((-0.25, -0.25, 0.43), (0.25, 0.25, 0.5)).box((-0.22, 0.2, 0.56), (0.22, 0.26, 1.0)).box((-0.03, 0.2, 0.48), (0.03, 0.25, 0.58))
+
+def water_cooler(P):
+    P['white'].box((-0.17, -0.17, 0), (0.17, 0.17, 0.95))
+    P['blue'].cylinder(0, 0, 0.95, 0.14, 0.42, 12)
+    P['dark'].box((-0.07, -0.19, 0.7), (0.07, -0.17, 0.78))
+
+def carton(P, w=0.5, d=0.4, h=0.4):
+    P['cardboard'].box((-w / 2, -d / 2, 0), (w / 2, d / 2, h))
+
+def bucket(P, col='blue'):
+    P[col].seg((0, 0, 0), (0, 0, 0.3), 0.12, 0.15, 12)
+    P['metal'].torus(0.15, 0.006, 0.3, 12, 4)
+
+def filing_cabinet(P):
+    P['metal'].box((-0.24, -0.3, 0), (0.24, 0.3, 1.32))
+    for z in (0.28, 0.6, 0.92, 1.22):
+        P['dark'].box((-0.08, -0.32, z), (0.08, -0.3, z + 0.03))
+
+def cable_reel(P):
+    w = P['wood']
+    w.cylinder(0, 0, 0, 0.35, 0.04, 12).cylinder(0, 0, 0.04, 0.15, 0.3, 10).cylinder(0, 0, 0.34, 0.35, 0.04, 12)
+    P['dark'].cylinder(0, 0, 0.06, 0.27, 0.26, 12).box((0.25, -0.02, 0), (1.3, 0.02, 0.025))
+
+def wet_sign(P):
+    P.put(lambda Q: Q['yellow'].box((-0.16, -0.01, 0), (0.16, 0.01, 0.64)), 0, -0.11, 0, tilt=(-0.17, 0))
+    P.put(lambda Q: Q['yellow'].box((-0.16, -0.01, 0), (0.16, 0.01, 0.64)), 0, 0.11, 0, tilt=(0.17, 0))
+    P.put(lambda Q: Q['dark'].box((-0.1, -0.012, 0.3), (0.1, -0.01, 0.42)), 0, -0.11, 0, tilt=(-0.17, 0))
+
+def trash_can(P, r=0.18, h=0.6, col='metal'):
+    P[col].cylinder(0, 0, 0, r, h, 12)
+    P['dark'].cylinder(0, 0, h, r * 0.85, 0.015, 12)
+
+def folding_chair(P):
+    P['white'].box((-0.21, -0.2, 0.43), (0.21, 0.2, 0.46)).box((-0.21, 0.17, 0.62), (0.21, 0.2, 0.86))
+    for s in (-1, 1):
+        P['chrome'].seg((s * 0.2, -0.18, 0), (s * 0.2, 0.19, 0.86), 0.012, None, 6).seg((s * 0.2, 0.2, 0), (s * 0.2, -0.15, 0.45), 0.012, None, 6)
+
+def lifebuoy(P):
+    P['red'].torus(0.3, 0.07, 0.07)
+
+def lifebuoy_wall(P):
+    P.put(lifebuoy, tilt=(R90, 0))
+
+def lifeguard_chair(P):
+    w = P['wood']
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            w.seg((sx * 0.42, sy * 0.42, 0), (sx * 0.28, sy * 0.28, 1.8), 0.03, None, 6)
+        w.box((sx * 0.3 - 0.02, -0.3, 1.86), (sx * 0.3 + 0.02, 0.3, 2.1))
+    for z in (0.4, 0.8, 1.2, 1.6):
+        w.box((-0.38, -0.39, z), (0.38, -0.35, z + 0.04))
+    w.box((-0.32, -0.32, 1.8), (0.32, 0.32, 1.86)).box((-0.32, 0.26, 1.86), (0.32, 0.32, 2.45))
+
+def towel(P):
+    P['towel'].box((-0.35, -0.6, 0), (0.35, 0.6, 0.02))
+
+def kickboard(P):
+    P['blue'].box((-0.22, -0.3, 0), (0.22, 0.3, 0.04))
+
+def text_sign(P, text, w, h):
+    """Wall sign centred on the origin, back at y=0.03, front face y=0."""
+    P['white'].box((-w / 2, 0, -h / 2), (w / 2, 0.03, h / 2))
+    P['red'].box((-w / 2, -0.004, h / 2 - 0.06), (w / 2, 0, h / 2)).box((-w / 2, -0.004, -h / 2), (w / 2, 0, -h / 2 + 0.06))
+    P['dark'].text(text, w * 0.86, Matrix.Translation((0, -0.006, 0)) @ Matrix.Rotation(R90, 4, 'X'))
+
+def notice_board(P):
+    P['wood'].box((-0.8, 0, -0.05), (0.8, 0.03, 0.85))
+    P['cork'].box((-0.74, -0.015, 0), (0.74, 0, 0.8))
+    for (x, z, w, h) in [(-0.55, 0.45, 0.2, 0.28), (-0.2, 0.5, 0.21, 0.28), (0.2, 0.15, 0.3, 0.4), (0.5, 0.5, 0.18, 0.24), (-0.45, 0.08, 0.22, 0.3)]:
+        P['white'].box((x - w / 2, -0.02, z), (x + w / 2, -0.015, z + h))
+
+def extinguisher(P):
+    P['red'].cylinder(0, 0, 0, 0.08, 0.48, 10)
+    P['dark'].cylinder(0, 0, 0.48, 0.025, 0.08, 6).seg((0, -0.03, 0.54), (0.07, -0.06, 0.2), 0.012, None, 5)
+    P['metal'].box((-0.03, 0.07, 0.15), (0.03, 0.1, 0.4))
+
+def wall_clock(P):
+    P['dark'].seg((0, 0, 0), (0, -0.04, 0), 0.175, None, 16)
+    P['white'].seg((0, -0.04, 0), (0, -0.045, 0), 0.15, None, 16)
+    P['dark'].box((-0.005, -0.05, -0.01), (0.005, -0.045, 0.1)).box((-0.09, -0.05, -0.005), (0.01, -0.045, 0.005))
+
+def drinking_fountain(P):
+    P['metal'].box((-0.25, -0.33, 0.75), (0.25, 0, 0.95)).box((-0.08, -0.12, 0), (0.08, 0, 0.75))
+    P['chrome'].box((-0.02, -0.2, 0.95), (0.02, -0.16, 1.0))
+
+def bench_seat(P):
+    P['wood'].box((-1, -0.2, 0.43), (1, 0.2, 0.47))
+    for dx in (-0.85, 0.85):
+        P['metal'].box((dx - 0.04, -0.18, 0), (dx + 0.04, 0.18, 0.43))
+
+def mop_bucket(P):
+    P['yellow'].box((-0.2, -0.15, 0.05), (0.2, 0.15, 0.35))
+    P['dark'].box((-0.18, -0.13, 0), (0.18, 0.13, 0.05))
+    P['wood'].seg((0.05, 0, 0.1), (0.15, 0.25, 1.3), 0.015, None, 6)
+    P['white'].box((-0.02, -0.06, 0.1), (0.12, 0.08, 0.3))
+
+def poster(P, w=0.6, h=0.8):
+    P['white'].box((-w / 2, -0.015, 0), (w / 2, 0, h))
+
+def plant(P, s=1.0):
+    P['dark'].cylinder(0, 0, 0, 0.22 * s, 0.4 * s, 10)
+    P['green'].sphere(0, 0, 0.68 * s, 0.3 * s).sphere(0.1 * s, 0.05 * s, 0.98 * s, 0.22 * s).sphere(-0.08 * s, -0.06 * s, 1.18 * s, 0.17 * s)
+
+def trolley(P):
+    c = P['chrome']
+    c.box((-0.28, -0.45, 0.45), (0.28, 0.45, 0.47))
+    c.box((-0.29, -0.45, 0.45), (-0.27, 0.45, 0.85)).box((0.27, -0.45, 0.45), (0.29, 0.45, 0.85))
+    c.box((-0.28, -0.47, 0.45), (0.28, -0.45, 0.85)).box((-0.28, 0.45, 0.45), (0.28, 0.47, 0.85))
+    c.seg((-0.3, 0.56, 1.0), (0.3, 0.56, 1.0), 0.015, None, 6)
+    for s in (-1, 1):
+        c.seg((s * 0.28, 0.46, 0.85), (s * 0.28, 0.56, 1.0), 0.012, None, 6)
+        for sy in (-1, 1):
+            c.seg((s * 0.25, sy * 0.4, 0.08), (s * 0.25, sy * 0.4, 0.45), 0.012, None, 6)
+            P['dark'].box((s * 0.25 - 0.02, sy * 0.4 - 0.04, 0), (s * 0.25 + 0.02, sy * 0.4 + 0.04, 0.08))
+
+def mannequin(P):
+    w = P['white']
+    for s in (-1, 1):
+        w.seg((s * 0.09, 0, 0.06), (s * 0.1, 0, 0.92), 0.05, 0.065, 8)
+        w.seg((s * 0.2, 0, 1.43), (s * 0.24, -0.03, 0.86), 0.045, 0.035, 8)
+    w.sphere(0, 0, 0.95, 0.15, 1.1, 0.75, 0.7)
+    w.seg((0, 0, 0.95), (0, 0, 1.45), 0.13, 0.17, 10).seg((0, 0, 1.45), (0, 0, 1.58), 0.045, None, 6)
+    w.sphere(0, 0, 1.69, 0.11, 0.85, 0.95, 1.2)
+    P['dark'].cylinder(0, 0, 0, 0.2, 0.03, 12).seg((0, 0.06, 0.03), (0, 0.06, 0.55), 0.015, None, 6)
+
+def kiosk_cart(P):
+    P['wood'].box((-1, -0.6, 0.25), (1, 0.6, 1.0))
+    P['tarp'].box((-1.06, -0.66, 0.6), (1.06, 0.66, 1.62))
+    for sx in (-0.7, 0.7):
+        P['dark'].seg((sx, -0.64, 0.2), (sx, -0.56, 0.2), 0.2, None, 10).seg((sx, 0.56, 0.2), (sx, 0.64, 0.2), 0.2, None, 10)
+
+def directory_board(P):
+    P['metal'].box((-0.6, -0.08, 0), (0.6, 0.08, 2.1))
+    P['white'].box((-0.5, -0.09, 0.6), (0.5, -0.08, 1.95))
+    for (x, z, w, h, c) in [(-0.3, 1.5, 0.3, 0.3, 'blue'), (0.1, 1.55, 0.45, 0.25, 'red'), (-0.25, 1.0, 0.35, 0.35, 'yellow'),
+                            (0.2, 0.95, 0.3, 0.4, 'blue'), (0, 0.7, 0.8, 0.12, 'dark')]:
+        P[c].box((x - w / 2, -0.095, z), (x + w / 2, -0.09, z + h))
+
+def vending(P):
+    P['red'].box((-0.45, -0.4, 0), (0.45, 0.4, 1.9))
+
+def ball(P, r=0.25):
+    P['white'].sphere(0, 0, r, r)
+
+def crate(P, w=0.6, d=0.8, h=0.9, col='blue'):
+    P[col].box((-w / 2, -d / 2, 0), (w / 2, d / 2, h))
+
 # ---------------------------------------------------------------- rooms
 def backrooms():
     H, W, L = 2.7, 9.0, 32.0
@@ -241,7 +490,7 @@ def backrooms():
     Part().ceiling(-W, 0, W, L, H).build('ceiling', material('ceiling', tex='ceiling'), (1.2, 1.2))
     p = Part()
     wall(p, -W, 0, -W, L, H); wall(p, W, 0, W, L, H)
-    end_wall(p, 0, -W, W, H); end_wall(p, L, -W, W, H)
+    wall(p, -W, 0, W, 0, H); wall(p, -W, L, W, L, H)  # solid: the camera noclips through
     for s in [(-1.6, 3, -1.6, 9), (1.6, 4, 1.6, 7), (-1.6, 12, -1.6, 14), (-1.6, 17, -1.6, 23), (1.6, 19, 1.6, 25),
               (-1.6, 26, -1.6, 30), (1.6, 28, 1.6, 31), (-9, 8, -4, 8), (-6, 14, -1.6, 14), (4, 6, 9, 6),
               (1.6, 12, 6, 12), (-9, 20, -5, 20), (5, 22, 9, 22), (-4, 26, -1.6, 26), (3, 28, 7, 28)]:
@@ -269,6 +518,23 @@ def backrooms():
     lamp.build('hs_lamp', NEON(), hotspot='lamp', neon=1)
     for i, (x, y) in enumerate([(-5, 11), (5, 18), (-7, 24), (4, 30), (0.5, 31)]):
         spot(i, x, y)
+    # props sit outside the x=±1.6 channel, visible through its openings (right 7-10/16-19/25-28, left 9-12/14-17/23-26)
+    P = Props()
+    P.put(wet_sign, 2.0, 1.8, a=0.4)
+    P.put(office_chair, 2.7, 7.8, a=2.4)
+    P.put(filing_cabinet, 2.0, 10.45, a=R90)
+    P.put(office_chair, 3.0, 17.0, a=-0.6)
+    P.put(water_cooler, 2.2, 18.5)
+    P.put(carton, -2.6, 14.8, a=0.2)
+    P.put(carton, -3.2, 15.4, a=-0.3, w=0.6, d=0.45, h=0.45)
+    P.put(carton, -2.65, 14.85, 0.4, a=0.5, w=0.4, d=0.35, h=0.3)
+    P.put(bucket, -2.3, 23.7)
+    P.put(cable_reel, -3.2, 25.1, a=0.3)
+    P.build('props')
+    glitch('clip', 'dark', office_chair, -2.9, 10.6, -0.28, a=0.8, tilt=(0.35, 0.2))     # sunk into the carpet
+    glitch('float', 'cardboard', carton, 3.1, 9.0, 0.42, a=0.6, tilt=(0.25, 0.15))
+    glitch('double', 'metal', trash_can, 2.4, 26.6)
+    glitch('missing', 'white', poster, -1.499, 27.6, 1.15, a=R90, w=0.7, h=0.9)          # on the channel wall
 
 def pool():
     H, W, L, D = 6.0, 8.0, 32.0, 1.6
@@ -287,7 +553,7 @@ def pool():
     Part().floor(bx0, by0, bx1, by1, -0.25).build('hs_water', material('water', (0.55, 0.85, 0.88)), (2, 2), hotspot='water')
     w = Part()
     wall(w, -W, 0, -W, L, H); wall(w, W, 0, W, L, H)
-    end_wall(w, 0, -W, W, H, 1.4, 2.8); end_wall(w, L, -W, W, H, 1.4, 2.8)
+    wall(w, -W, 0, W, 0, H); wall(w, -W, L, W, L, H)
     for y in range(4, 31, 4):
         for x in (-6.5, 6.5):
             w.box((x - 0.25, y - 0.25, 0), (x + 0.25, y + 0.25, H))
@@ -315,6 +581,21 @@ def pool():
     lad.build('hs_ladder', material('chrome', (0.75, 0.77, 0.78)), hotspot='ladder')
     for i, (x, y) in enumerate([(-6, 14), (6, 22), (-2, 29.5), (5.5, 9)]):
         spot(i, x, y)
+    # deck strips are x 4.5..7.9 either side of the basin; pillars at x=±6.5 every 4 m
+    P = Props()
+    P.put(lifeguard_chair, 5.6, 15.0, a=-R90)
+    P.put(lifebuoy_wall, -6.25, 12.0, 1.4, a=R90)
+    P.put(lifebuoy, 7.0, 19.0)
+    P.put(folding_chair, -5.4, 18.0, a=R90)
+    P.put(folding_chair, -7.2, 18.3, a=R90 + 0.4)
+    P.put(towel, -5.6, 22.6, a=0.15)
+    P.put(kickboard, 5.3, 11.4, a=0.5)
+    P.put(text_sign, -7.87, 10.0, 2.0, a=R90, text='DILARANG MENYELAM', w=2.6, h=0.6)
+    P.build('props')
+    glitch('clip', 'white', folding_chair, 5.8, 28.8, -0.22, a=-0.5, tilt=(0.3, -0.2))  # sunk into the tiles
+    glitch('float', 'red', lifebuoy, 2.6, 20.0, 0.15, tilt=(0.2, 0.1))                   # 0.4 m above the water
+    glitch('double', 'white', ball, -5.4, 26.0)
+    glitch('missing', 'blue', crate, -7.2, 30.5)
 
 def corridor():
     H, W, L = 3.0, 1.7, 32.0
@@ -323,7 +604,8 @@ def corridor():
     Part().ceiling(-W, 0, W, L, H).build('ceiling', material('ceiling', tex='ceiling'), (1.2, 1.2))
     w = Part()
     wall(w, -W, 0, -W, L, H, 0.15); wall(w, W, 0, W, L, H, 0.15)
-    end_wall(w, L, -3, 3, H, 0.9, 2.2)
+    wall(w, -W, 0, W, 0, H, 0.15)
+    end_wall(w, L, -3, 3, H, 0.9, 2.2)  # stays open: the silhouette stands in this doorway
     w.build('walls', material('wainscot', tex='wainscot'), (1.0, H))
     wood = material('wood', tex='wood')
     d = Part()
@@ -349,6 +631,24 @@ def corridor():
     point_light(0, L - 0.5, 2.5, 6, (0.3, 1, 0.5))
     for i, (x, y) in enumerate([(0, 28.5), (-0.7, 23), (0.6, 30.5)]):
         spot(i, x, y)
+    empty('anchor_silhouette', 0, 32.3, 0)
+    # only the 0.4 m strips between |x|=1.2 and the wall face (1.625) are usable, between the doors
+    F = W - 0.075
+    P = Props()
+    P.put(trash_can, 1.4, 5.0)
+    P.put(trash_can, -1.4, 17.0)
+    P.put(notice_board, F - 0.03, 12.95, 1.1, a=-R90)
+    P.put(extinguisher, F - 0.1, 25.0, 1.0, a=-R90)
+    P.put(extinguisher, -F + 0.1, 5.0, 1.0, a=R90)
+    P.put(wall_clock, F, 18.0, 2.4, a=-R90)
+    P.put(drinking_fountain, F, 9.0, a=-R90)
+    P.put(bench_seat, -F + 0.2, 13.0, a=R90)
+    P.put(mop_bucket, 1.42, 29.3, a=-R90)
+    P.build('props')
+    glitch('clip', 'dark', office_chair, -1.7, 9.0, -0.05, a=R90 + 0.3, tilt=(0.0, 0.25))  # half inside the wall
+    glitch('float', 'cardboard', carton, -1.48, 21.0, 0.4, a=0.4, tilt=(0.2, 0.3), w=0.3, d=0.3, h=0.3)
+    glitch('double', 'green', plant, -1.4, 25.0, s=0.6)
+    glitch('missing', 'white', poster, -F + 0.001, 28.9, 1.2, a=R90)
 
 def mall():
     H, W, L, M = 9.0, 11.0, 34.0, 4.5
@@ -357,7 +657,7 @@ def mall():
     plaster = material('plaster', (0.70, 0.68, 0.63))
     s = Part()
     wall(s, -W, 0, -W, L, H); wall(s, W, 0, W, L, H)
-    end_wall(s, 0, -W, W, H, 1.8, 3.2); end_wall(s, L, -W, W, H, 1.8, 3.2)
+    wall(s, -W, 0, W, 0, H); wall(s, -W, L, W, L, H)
     for side in (-1, 1):
         s.box((7 if side > 0 else -11, 0, M - 0.3), (11 if side > 0 else -7, L, M))  # mezzanine walkway
         for y in range(0, 35, 6):
@@ -409,6 +709,24 @@ def mall():
     pl.build('planters', material('planter', (0.35, 0.33, 0.30)))
     for i, (x, y, z) in enumerate([(6, 20, 0), (-7, 12, 0), (0.5, 31, 0), (3, 26, 0), (9.6, 18, M)]):
         spot(i, x, y, z)
+    empty('anchor_partygoer', -5, 30.2, M)
+    # the camera detours to x=3 around the fountain (y 13-19), so x 1.5..4.5 stays clear for y 10-22
+    P = Props()
+    P.put(trolley, -5.5, 3.5, a=0.35)
+    P.put(trolley, 6.5, 25.5, a=-2.0)
+    P.put(mannequin, -9.7, 14.4, a=R90)
+    P.put(mannequin, -9.6, 15.7, a=R90 - 0.3)
+    P.put(kiosk_cart, 5.5, 31.0, a=0.1)
+    P.put(plant, -9.6, 2.5)
+    P.put(plant, 9.6, 31.5)
+    P.put(directory_board, -2.6, 6.0)
+    P.put(trash_can, 2.5, 7.0, r=0.25, h=0.8)
+    P.put(wet_sign, -2.2, 21.0, a=0.5)
+    P.build('props')
+    glitch('clip', 'chrome', trolley, -6.5, 16.5, -0.3, a=1.0, tilt=(0.4, 0.15))  # nose-down in the floor
+    glitch('float', 'green', plant, 2.4, 29.0, 0.4, tilt=(0.15, -0.1))
+    glitch('double', 'white', mannequin, 8.0, 8.5, a=-R90)
+    glitch('missing', 'red', vending, -10.0, 27.0, a=R90)
 
 def entity():
     p = Part()
@@ -418,6 +736,57 @@ def entity():
     p.box((-0.05, -0.05, 1.95), (0.05, 0.05, 2.08))  # neck
     p.sphere(0, 0, 2.22, 0.14, 0.9, 0.95, 1.25)  # faceless head
     p.build('entity', material('entity', (0.015, 0.014, 0.013)), entity=1)
+
+# Entities: origin at the feet, facing Blender -Y, no bake (the runtime draws them unlit).
+def tall():
+    """~2.6 m, emaciated, overlong limbs, slight forward hunch, small featureless head. Own design."""
+    p = Part()
+    for s in (-1, 1):
+        p.seg((s * 0.09, 0, 1.38), (s * 0.11, -0.03, 0.72), 0.045, 0.035).sphere(s * 0.11, -0.03, 0.72, 0.04)
+        p.seg((s * 0.11, -0.03, 0.72), (s * 0.12, 0.02, 0.06), 0.035, 0.022)
+        p.box((s * 0.12 - 0.035, -0.13, 0), (s * 0.12 + 0.035, 0.04, 0.05))
+        p.seg((s * 0.22, -0.18, 2.25), (s * 0.27, -0.22, 1.62), 0.03, 0.024).sphere(s * 0.27, -0.22, 1.62, 0.03)
+        p.seg((s * 0.27, -0.22, 1.62), (s * 0.29, -0.28, 0.98), 0.024, 0.018)
+        p.seg((s * 0.29, -0.28, 0.98), (s * 0.3, -0.31, 0.68), 0.02, 0.006)  # long, tapering fingers
+    p.sphere(0, 0, 1.4, 0.11, 1.1, 0.7, 0.6)
+    p.seg((0, 0, 1.4), (0, -0.06, 1.85), 0.06, 0.1).seg((0, -0.06, 1.85), (0, -0.17, 2.24), 0.1, 0.11)
+    p.seg((-0.22, -0.18, 2.26), (0.22, -0.18, 2.26), 0.045)
+    p.seg((0, -0.19, 2.28), (0, -0.31, 2.42), 0.03, 0.025)
+    p.sphere(0, -0.34, 2.5, 0.085, 0.85, 0.95, 1.3)
+    p.build('tall', material('entity', (0.015, 0.014, 0.013)), entity=1)
+
+def silhouette():
+    """An ordinary 1.75 m person."""
+    p = Part()
+    for s in (-1, 1):
+        p.seg((s * 0.1, 0, 0.92), (s * 0.1, 0, 0.06), 0.068, 0.05)
+        p.box((s * 0.1 - 0.045, -0.16, 0), (s * 0.1 + 0.045, 0.05, 0.07))
+        p.seg((s * 0.22, 0, 1.42), (s * 0.25, -0.02, 0.8), 0.045, 0.035)
+    p.seg((0, 0, 0.9), (0, 0, 1.44), 0.15, 0.19, 10).seg((-0.21, 0, 1.43), (0.21, 0, 1.43), 0.055)
+    p.seg((0, 0, 1.44), (0, 0, 1.54), 0.05)
+    p.sphere(0, 0, 1.635, 0.105, 0.9, 1.0, 1.1)
+    p.build('silhouette', material('entity', (0.015, 0.014, 0.013)), entity=1)
+
+def partygoer():
+    """Yellow costume body; separate `head` object pivoting at the neck, face from TEX['partyface']."""
+    NECK, R = 1.45, 0.24
+    p = Part()
+    for s in (-1, 1):
+        p.seg((s * 0.12, 0, 0.75), (s * 0.12, 0, 0.06), 0.09, 0.08, 10)
+        p.box((s * 0.12 - 0.06, -0.2, 0), (s * 0.12 + 0.06, 0.06, 0.08))
+        p.seg((s * 0.28, 0, 1.3), (s * 0.42, -0.05, 0.82), 0.07, 0.06, 10).sphere(s * 0.43, -0.05, 0.78, 0.07)
+    p.sphere(0, 0, 1.05, 0.32, 1, 0.8, 1.25)
+    p.build('partygoer', material('party_body', (1.0, 0.84, 0.08)), entity=1)
+    head = Part().sphere(0, 0, R, R, 1, 1, 0.95).build('head', material('party_face', tex='partyface'), entity=1)
+    head.location.z = NECK
+    uv = head.data.uv_layers['uv'].data
+    for poly in head.data.polygons:  # front hemisphere gets the face, the back a yellow corner
+        front = poly.center.y < 0
+        for li in poly.loop_indices:
+            c = head.data.vertices[head.data.loops[li].vertex_index].co
+            uv[li].uv = (0.5 + c.x / (2 * R), 0.5 + (c.z - R) / (2 * R * 0.95)) if front else (0.02, 0.02)
+
+ENTITIES = ('entity', 'tall', 'silhouette', 'partygoer')
 
 # ---------------------------------------------------------------- bake + export
 def bake_lightmap(room):
@@ -484,7 +853,7 @@ def run(room):
     t = time.time()
     fresh_scene()
     globals()[room]()
-    k = bake_lightmap(room) if room != 'entity' else None
+    k = bake_lightmap(room) if room not in ENTITIES else None
     export(room)
     print(room, 'done in', round(time.time() - t, 1), 's  k=', k,
           'glb KB=', os.path.getsize(os.path.join(OUT, room + '.glb')) // 1024)
