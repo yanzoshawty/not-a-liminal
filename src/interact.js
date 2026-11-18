@@ -1,0 +1,253 @@
+import { gsap } from 'gsap'
+import { Raycaster, Vector2, Vector3, Box3, RingGeometry, MeshBasicMaterial, Mesh } from 'three'
+import { HOTSPOTS, ENTITY_INFO } from './hotspots.js'
+import { chooseSpot } from './entity.js'
+
+const MIN_ENTITY_DIST = 12 // the entity is never visible closer than this to the camera
+const FADE_DIST = 20 // fading starts here
+
+/** No-WebGL fallback: hotspot buttons still open their info card. */
+export function initTextOnly() {
+  const dialog = document.getElementById('info')
+  document.getElementById('info-close').addEventListener('click', () => dialog.close())
+  document.querySelectorAll('[data-hotspot]').forEach((btn) => btn.addEventListener('click', () => {
+    const info = btn.dataset.hotspot === 'entity' ? ENTITY_INFO : HOTSPOTS[btn.dataset.hotspot]
+    document.getElementById('info-title').textContent = info.title
+    document.getElementById('info-body').textContent = info.body
+    dialog.showModal()
+  }))
+}
+
+export function initInteract(world, scroll, { reduceMotion, fine }) {
+  const ray = new Raycaster()
+  ray.far = 45
+  const ndc = new Vector2()
+  const dialog = document.getElementById('info')
+  const titleEl = document.getElementById('info-title')
+  const bodyEl = document.getElementById('info-body')
+  let busy = false
+  let hovered = null
+  let entitySeen = false
+  let onClose = null
+
+  // ---------------------------------------------------------- picking
+  function pick(x, y) {
+    ndc.set((x / innerWidth) * 2 - 1, -(y / innerHeight) * 2 + 1)
+    ray.setFromCamera(ndc, world.camera)
+    // First hit against everything, so walls block objects behind them.
+    const hit = ray.intersectObjects(world.scene.children, true).find((h) => h.object.visible && (!h.object.userData.entity || world.entity.visible))
+    if (!hit) return null
+    if (hit.object.userData.entity) return { id: 'entity', obj: world.entity, point: hit.point }
+    const id = hit.object.userData.hotspot
+    return id ? { id, obj: hit.object, point: hit.point } : null
+  }
+  const blocked = (t) => t.closest?.('.card, button, a, dialog, .hotspot-list')
+
+  addEventListener('click', (e) => {
+    if (busy || blocked(e.target)) return
+    const p = pick(e.clientX, e.clientY)
+    if (p) activate(p.id, p.obj, p.point)
+  })
+
+  if (fine) {
+    let pending = false, lx = 0, ly = 0
+    addEventListener('pointermove', (e) => {
+      lx = e.clientX; ly = e.clientY
+      if (pending) return
+      pending = true
+      requestAnimationFrame(() => {
+        pending = false
+        const p = busy || blocked(document.elementFromPoint(lx, ly) || document.body) ? null : pick(lx, ly)
+        setHover(p?.id && p.id !== 'entity' ? p.obj : null)
+        document.body.style.cursor = p ? 'pointer' : ''
+      })
+    }, { passive: true })
+  }
+
+  function setHover(obj) {
+    if (obj === hovered) return
+    if (hovered) restore(hovered)
+    hovered = obj
+    if (obj) { remember(obj); obj.material.color.copy(obj.userData.baseColor).multiplyScalar(1.3) }
+  }
+  function remember(obj) { obj.userData.baseColor ??= obj.material.color.clone() }
+  function restore(obj) { obj.material.color.copy(obj.userData.baseColor) }
+
+  // ---------------------------------------------------------- buttons (keyboard / remote / screen reader)
+  document.querySelectorAll('[data-hotspot]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.hotspot
+      if (id === 'entity') return activate('entity', world.entity)
+      activate(id, world.hotspots.find((o) => o.userData.hotspot === id) ?? null)
+    })
+  })
+
+  // ---------------------------------------------------------- open / close
+  function activate(id, obj, point) {
+    if (busy) return
+    if (id === 'entity') {
+      vanishEntity()
+      if (entitySeen) return
+      entitySeen = true
+      return showInfo(ENTITY_INFO) // no camera move: nothing ever approaches the entity
+    }
+    busy = true
+    setHover(null)
+    if (obj) focusOn(obj)
+    react(id, obj, point)
+    showInfo(HOTSPOTS[id])
+  }
+
+  function showInfo(info) {
+    busy = true
+    titleEl.textContent = info.title
+    bodyEl.textContent = info.body
+    dialog.showModal()
+  }
+
+  function focusOn(obj) {
+    scroll.lock()
+    const cam = world.camera
+    const from = scroll.pose(scroll.progressY())
+    const state = { pos: cam.position.clone(), look: from.look.clone() }
+    scroll.setOverride(state)
+    const box = new Box3().setFromObject(obj)
+    const center = box.getCenter(new Vector3())
+    const radius = box.getSize(new Vector3()).length() / 2
+    const dir = state.pos.clone().sub(center).setY(0)
+    const horiz = dir.length()
+    dir.normalize()
+    // Stay between the camera and the object so we never cross a wall.
+    const dist = Math.min(gsap.utils.clamp(1.8, 4.5, radius * 1.4), horiz * 0.85)
+    const to = center.clone().addScaledVector(dir, dist)
+    to.y = gsap.utils.clamp(1.2, 2.3, center.y + 0.3)
+    const d = reduceMotion ? 0 : 1.2
+    gsap.to(state.pos, { x: to.x, y: to.y, z: to.z, duration: d, ease: 'power2.inOut', overwrite: true })
+    gsap.to(state.look, { x: center.x, y: center.y, z: center.z, duration: d, ease: 'power2.inOut', overwrite: true })
+    onClose = () => {
+      const back = scroll.pose(scroll.progressY())
+      const tl = gsap.timeline({ onComplete: () => { scroll.unlock(); busy = false } })
+      tl.to(state.pos, { x: back.pos.x, y: back.pos.y, z: back.pos.z, duration: d * 0.8, ease: 'power2.inOut', overwrite: true }, 0)
+      tl.to(state.look, { x: back.look.x, y: back.look.y, z: back.look.z, duration: d * 0.8, ease: 'power2.inOut', overwrite: true }, 0)
+    }
+  }
+
+  document.getElementById('info-close').addEventListener('click', () => dialog.close())
+  dialog.addEventListener('close', () => {
+    const fn = onClose
+    onClose = null
+    undo?.()
+    undo = null
+    if (fn) fn()
+    else busy = false
+  })
+
+  // ---------------------------------------------------------- reactions
+  let undo = null
+  function react(id, obj, point) {
+    if (!obj) return
+    remember(obj)
+    const base = obj.userData.baseColor
+    const c = obj.material.color
+    if (id === 'lamp' || id === 'exit_sign') {
+      if (reduceMotion) return
+      const tl = gsap.timeline({ onComplete: () => c.copy(base) })
+      ;[0.1, 1, 0.3, 1, 0.05, 0.8, 1].forEach((k, i) => tl.call(() => c.copy(base).multiplyScalar(k), null, i * 0.09 + (i > 3 ? 0.25 : 0)))
+    } else if (id === 'door') {
+      obj.userData.baseZ ??= obj.position.z // absolute targets: an interrupted open/close can't drift
+      gsap.to(obj.position, { z: obj.userData.baseZ - 0.85, duration: reduceMotion ? 0 : 1.6, ease: 'power2.inOut', overwrite: true })
+      undo = () => gsap.to(obj.position, { z: obj.userData.baseZ, duration: reduceMotion ? 0 : 1.2, ease: 'power2.inOut', overwrite: true })
+    } else if (id === 'water') {
+      ripple(point ?? new Box3().setFromObject(obj).getCenter(new Vector3()), obj.position.y)
+    } else if (id === 'escalator') {
+      if (!reduceMotion) gsap.fromTo(obj.position, { y: 0 }, { y: 0.015, duration: 0.06, repeat: 9, yoyo: true, ease: 'none', delay: 0.4 })
+    } else {
+      gsap.timeline().to(c, { r: base.r * 1.4, g: base.g * 1.4, b: base.b * 1.4, duration: 0.5, ease: 'sine.out' })
+        .to(c, { r: base.r, g: base.g, b: base.b, duration: 1.2, ease: 'sine.inOut' })
+    }
+  }
+
+  const ringGeo = new RingGeometry(0.12, 0.17, 48)
+  function ripple(at) {
+    for (let i = 0; i < 3; i++) {
+      const m = new Mesh(ringGeo, new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }))
+      m.rotation.x = -Math.PI / 2
+      m.position.set(at.x, at.y + 0.01, at.z)
+      world.scene.add(m)
+      gsap.timeline({ delay: i * 0.35, onComplete: () => { world.scene.remove(m); m.material.dispose() } })
+        .to(m.scale, { x: 22, y: 22, duration: reduceMotion ? 0.01 : 2.6, ease: 'power1.out' }, 0)
+        .to(m.material, { opacity: 0, duration: reduceMotion ? 0.01 : 2.6, ease: 'power1.in' }, 0)
+    }
+  }
+
+  // ---------------------------------------------------------- entity
+  const tmp = new Vector3()
+  let current = null // index into world.spots
+  let lastDist = 0 // distance at the last spawn; reset per room
+  let hidden = true
+  let respawnCall = null
+
+  function entityMats() {
+    const mats = []
+    world.entity?.traverse((o) => o.isMesh && mats.push(o.material))
+    return mats
+  }
+
+  function candidates() {
+    const cam = world.camera.position
+    return world.spots
+      .map((s, i) => ({ i, p: s.obj.getWorldPosition(new Vector3()), room: s.room }))
+      .filter((s) => s.room === scroll.room && s.p.distanceTo(cam) >= FADE_DIST + 4 && s.p.distanceTo(cam) <= 40)
+  }
+
+  function placeEntity() {
+    const cam = world.camera.position
+    const list = candidates().map((s) => ({ ...s, d: s.p.distanceTo(cam) }))
+    if (!world.entity || !list.length) { respawnCall = gsap.delayedCall(3, placeEntity); return }
+    const s = chooseSpot(list, current, lastDist, Math.random) // never reappears closer than before
+    current = s.i
+    lastDist = s.d
+    world.entity.position.copy(s.p)
+    world.entity.visible = true
+    hidden = false
+    gsap.to(entityMats(), { opacity: 0.92, duration: reduceMotion ? 0.3 : 3, ease: 'sine.inOut', overwrite: true })
+  }
+
+  function vanishEntity() {
+    if (!world.entity || hidden) return
+    hidden = true
+    respawnCall?.kill()
+    gsap.to(entityMats(), {
+      opacity: 0, duration: 0.8, ease: 'power2.in', overwrite: true,
+      onComplete: () => {
+        world.entity.visible = false
+        respawnCall = gsap.delayedCall(gsap.utils.random(4, 8), placeEntity)
+      },
+    })
+  }
+
+  if (world.entity) {
+    world.entity.visible = false
+    entityMats().forEach((m) => { m.opacity = 0 })
+    respawnCall = gsap.delayedCall(2.5, placeEntity)
+  }
+
+  let lastRoom = -1
+  world.tick = () => {
+    const e = world.entity
+    if (!e) return
+    const cam = world.camera.position
+    if (scroll.room !== lastRoom) {
+      lastRoom = scroll.room
+      lastDist = 0
+      if (!hidden) vanishEntity()
+    }
+    if (e.visible) {
+      tmp.copy(cam).sub(e.position)
+      e.rotation.y = Math.atan2(tmp.x, tmp.z) // always faces you, from afar
+      const d = tmp.length()
+      if (d < MIN_ENTITY_DIST) { e.visible = false; if (!hidden) vanishEntity() } // fade tween still schedules the respawn
+      else if (!hidden && d < FADE_DIST) vanishEntity() // start fading early so a fast scroll never gets close
+    }
+  }
+}

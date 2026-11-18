@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>not-a-liminal — jalan-jalan di liminal space</title>
+  <meta name="description" content="Kenalan dengan liminal space: tempat yang terasa familiar tapi bikin merinding. Jelajahi Backrooms, poolrooms, lorong sepi, dan mall yang sudah tutup dalam 3D." />
+  <meta name="theme-color" content="#0b0a08" />
+  <meta property="og:title" content="not-a-liminal" />
+  <meta property="og:description" content="Jalan-jalan pelan-pelan di liminal space." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script type="module" src="/src/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#intro">Lewati ke konten</a>
+
+  <div id="loader" role="status" aria-live="polite">
+    <p class="loader-line">kamu pernah ke sini sebelumnya</p>
+    <span class="sr-only">Sedang memuat ruangan…</span>
+  </div>
+
+  <canvas id="world" role="img" aria-label="Pemandangan 3D liminal space yang bergerak saat kamu scroll: Backrooms, kolam renang kosong, lorong sepi, dan mall yang sudah tutup."></canvas>
+  <div class="grain" aria-hidden="true"></div>
+
+  <button id="sound" class="sound" type="button" aria-pressed="false">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <span class="sound-label">Suara: mati</span>
+  </button>
+
+  <p class="no-webgl-note" role="note">Perangkatmu belum bisa menampilkan 3D, tapi semua ceritanya tetap bisa kamu baca di bawah.</p>
+
+  <main id="main">
+    <section class="hero" data-room="0" aria-labelledby="t-hero">
+      <div class="card hero-card">
+        <p class="eyebrow">sebuah jalan-jalan pelan</p>
+        <h1 id="t-hero">not-a-liminal</h1>
+        <p class="lede">Pernah masuk ke tempat yang terasa familiar, tapi entah kenapa bikin merinding? Lorong kosong, kolam renang sepi, parkiran jam dua pagi. Perasaan itu punya nama: <b>liminal space</b>.</p>
+        <p class="hint">scroll pelan-pelan <span aria-hidden="true">↓</span></p>
+      </div>
+    </section>
+
+    <section id="intro" class="intro" data-room="0" aria-labelledby="t-intro">
+      <div class="card">
+        <h2 id="t-intro">Apa itu liminal space?</h2>
+        <p>Kata <i>liminal</i> berasal dari bahasa Latin <i>limen</i>, artinya ambang pintu atau batas. Jadi liminal space adalah <b>tempat transisi</b>, tempat yang kita lewati, bukan tempat tujuan. Contohnya lorong, tangga, lobi hotel, ruang tunggu, atau parkiran.</p>
+        <p>Biasanya kita nggak pernah benar-benar memperhatikan tempat-tempat ini. Tapi coba bayangkan tempat itu <b>kosong total</b>. Rasanya jadi aneh, kan?</p>
+      </div>
+      <ul class="facts">
+        <li class="card"><h3>Tempat transisi</h3><p>Dibuat untuk dilewati, bukan untuk ditinggali. Waktu kamu berhenti di sana, rasanya seperti "di antara" dua hal.</p></li>
+        <li class="card"><h3>Kehilangan konteks</h3><p>Tempat yang harusnya ramai jadi sepi. Otak bingung membaca situasinya, lalu muncul rasa waspada yang pelan.</p></li>
+        <li class="card"><h3>Nostalgia yang aneh</h3><p>Ada istilah <i>anemoia</i>: rasa kangen pada masa lalu yang sebenarnya nggak pernah kamu alami. Liminal space sering memicu rasa ini.</p></li>
+      </ul>
+    </section>
+
+    <section class="seg" data-room="0" aria-labelledby="t-backrooms">
+      <div class="card">
+        <p class="eyebrow">ruang 01</p>
+        <h2 id="t-backrooms">The Backrooms, Level 0</h2>
+        <p>Tahun 2019, seseorang memposting foto ruangan kuning kosong secara anonim di 4chan, di utas tentang "foto yang terasa salah". Lalu ada yang menambahkan cerita: kalau kamu tidak sengaja <i>noclip</i> keluar dari realita, kamu akan sampai di ruangan kuning tanpa ujung. Ada dengung lampu neon dan karpet yang lembab.</p>
+        <p>Dari satu foto itu lahir ribuan cerita, game, dan video found footage. Backrooms jadi contoh liminal space paling terkenal di internet.</p>
+        <p class="tip">Coba klik lampu, wallpaper, atau karpetnya. Kalau kamu melihat sosok tinggi di kejauhan… klik juga. Tenang, dia nggak akan mendekat.</p>
+      </div>
+      <div class="hotspot-list" role="group" aria-label="Objek yang bisa dilihat di Backrooms">
+        <button type="button" data-hotspot="lamp">Lampu neon</button>
+        <button type="button" data-hotspot="wallpaper">Wallpaper kuning</button>
+        <button type="button" data-hotspot="carpet">Karpet lembab</button>
+        <button type="button" data-hotspot="entity">Sosok di kejauhan</button>
+      </div>
+    </section>
+
+    <section class="seg" data-room="1" aria-labelledby="t-pool">
+      <div class="card">
+        <p class="eyebrow">ruang 02</p>
+        <h2 id="t-pool">Poolrooms</h2>
+        <p>Kolam renang dengan keramik putih, air yang tenang, dan cahaya lembut dari atas, tapi tidak ada satu orang pun. Banyak yang bilang poolrooms terasa <b>menenangkan sekaligus janggal</b>, seperti mimpi waktu kecil yang setengah lupa.</p>
+        <p>Suara di sini juga bikin aneh: setiap langkah bergema, padahal kamu sendirian.</p>
+      </div>
+      <div class="hotspot-list" role="group" aria-label="Objek yang bisa dilihat di poolrooms">
+        <button type="button" data-hotspot="ladder">Tangga kolam</button>
+        <button type="button" data-hotspot="water">Air yang diam</button>
+        <button type="button" data-hotspot="skylight">Cahaya dari atas</button>
+      </div>
+    </section>
+
+    <section class="seg" data-room="2" aria-labelledby="t-corridor">
+      <div class="card">
+        <p class="eyebrow">ruang 03</p>
+        <h2 id="t-corridor">Lorong di malam hari</h2>
+        <p>Lorong sekolah atau hotel biasanya penuh suara: langkah kaki, obrolan, pintu dibuka-tutup. Di malam hari atau saat libur, yang tersisa hanya deretan pintu tertutup dan lampu <i>exit</i> yang menyala sendirian.</p>
+        <p>Kamu tahu tempat ini dibuat untuk orang banyak. Karena itu kesepiannya terasa begitu jelas.</p>
+      </div>
+      <div class="hotspot-list" role="group" aria-label="Objek yang bisa dilihat di lorong">
+        <button type="button" data-hotspot="door">Pintu tertutup</button>
+        <button type="button" data-hotspot="locker">Deretan loker</button>
+        <button type="button" data-hotspot="exit_sign">Lampu exit</button>
+      </div>
+    </section>
+
+    <section class="seg" data-room="3" aria-labelledby="t-mall">
+      <div class="card">
+        <p class="eyebrow">ruang 04</p>
+        <h2 id="t-mall">Mall setelah tutup</h2>
+        <p>Eskalator yang berhenti, air mancur yang kering, toko-toko dengan rolling door tertutup. Ada tren di internet yang mendokumentasikan <i>dead malls</i>, mall yang perlahan ditinggalkan pengunjung.</p>
+        <p>Bahkan ada genre musik bernama <i>mallsoft</i>, musik yang terdengar seperti lagu mall yang diputar dari ruangan sebelah. Isinya menangkap rasa liminal ini.</p>
+      </div>
+      <div class="hotspot-list" role="group" aria-label="Objek yang bisa dilihat di mall">
+        <button type="button" data-hotspot="escalator">Eskalator mati</button>
+        <button type="button" data-hotspot="fountain">Air mancur kering</button>
+        <button type="button" data-hotspot="bench">Bangku kosong</button>
+      </div>
+    </section>
+
+    <section class="outro" data-room="3" aria-labelledby="t-outro">
+      <div class="card">
+        <h2 id="t-outro">Kenapa otak kita bereaksi begini?</h2>
+        <p>Otak kita suka pola dan konteks. Waktu tempat yang harusnya ramai jadi kosong, otak nggak bisa "membaca" situasinya. Ditambah ingatan masa kecil yang samar, hasilnya campur aduk: <b>tenang, kangen, dan sedikit merinding</b> sekaligus.</p>
+        <p>Lain kali kamu lewat lorong kosong atau parkiran sepi, coba berhenti sebentar. Kamu baru saja berdiri di liminal space.</p>
+        <p class="credits">Semua visual 3D dibuat di Blender. Suara latarnya dibuat langsung oleh browser kamu. Terinspirasi dari budaya internet The Backrooms (2019).</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="info" aria-labelledby="info-title">
+    <p class="eyebrow" id="info-kicker">kamu menemukan</p>
+    <h2 id="info-title"></h2>
+    <p id="info-body"></p>
+    <button type="button" class="back" id="info-close">Kembali jalan</button>
+  </dialog>
+</body>
+</html>
