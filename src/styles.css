@@ -86,7 +86,7 @@ section { padding-inline: var(--gutter); }
   background: linear-gradient(to top, rgb(11 10 8 / 0.75), transparent 60%), linear-gradient(to right, rgb(11 10 8 / 0.55), transparent 55%); }
 .intro { padding-block: 40svh 60svh; }
 /* Generous empty scroll so each room can be enjoyed without text. */
-.seg { min-height: 300svh; padding-top: 30svh; }
+.seg { min-height: 420svh; padding-top: 30svh; }
 .outro { min-height: 160svh; padding-block: 40svh 30svh; }
 
 .card {

@@ -11,9 +11,9 @@ const H = 1.6
 // Each room is fully visible while its card is on screen; the dark gap is crossed in the
 // last ~20% of the previous section.
 const SPEC = [
-  [0, 0, 0, H, -0.6], [1, 0, 0, H, -2], [2, 0, 0, H, -6], [2, 0.8, 0, H, -29],
-  [3, 0, 0, 1.9, -61], [3, 0.8, 0, 1.9, -87],
-  [4, 0, 0, H, -121], [4, 0.8, 0, H, -148],
+  [0, 0, 0, H, -0.6], [1, 0, 0, H, -2], [2, 0, 0, H, -6], [2, 0.7, 0, H, -29],
+  [3, 0, 0, 1.9, -61], [3, 0.7, 0, 1.9, -87],
+  [4, 0, 0, H, -121], [4, 0.7, 0, H, -148],
   [5, 0, 0, 1.8, -181], [5, 0.3, 3, 1.8, -192], [5, 0.55, 3, 1.8, -199], [5, 1, 0, 1.8, -205],
   // outro: walk out through the mall's back door into the dark
   [6, 0.4, 0, 1.8, -212], [6, 1, 0, 1.8, -224],
@@ -37,7 +37,7 @@ export function bindScroll(world, { motion, fineMotion, onRoom }) {
     keys[keys.length - 1][0] = max
   }
 
-  const yTo = gsap.quickTo(proxy, 'y', { duration: 1.2, ease: 'power3' })
+  const yTo = gsap.quickTo(proxy, 'y', { duration: 2.0, ease: 'power3' })
   const mx = gsap.quickTo(mouse, 'x', { duration: 1.6, ease: 'power2' })
   const my = gsap.quickTo(mouse, 'y', { duration: 1.6, ease: 'power2' })
   const follow = (y) => {

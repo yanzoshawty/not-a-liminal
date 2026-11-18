@@ -18,3 +18,7 @@ export function lerpKeys(keys, y) {
 const clampRoom = gsap.utils.clamp(0, ROOM_COUNT - 1)
 /** Room index for a camera z; switches halfway through the gap after each room. */
 export const roomAt = (z) => clampRoom(Math.floor((-z + 14) / ROOM_GAP))
+
+export const BOUNDARIES = [-32, -60, -92, -120, -152, -180, -214]
+/** 0..1 noclip intensity: 1 at a boundary, linear to 0 within 2.5 m, max over all boundaries. */
+export const noclip = (z) => Math.max(...BOUNDARIES.map((b) => Math.max(0, 1 - Math.abs(z - b) / 2.5)))
