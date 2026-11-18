@@ -22,3 +22,9 @@ export const roomAt = (z) => clampRoom(Math.floor((-z + 14) / ROOM_GAP))
 export const BOUNDARIES = [-32, -60, -92, -120, -152, -180, -214]
 /** 0..1 noclip intensity: 1 at a boundary, linear to 0 within 2.5 m, max over all boundaries. */
 export const noclip = (z) => Math.max(...BOUNDARIES.map((b) => Math.max(0, 1 - Math.abs(z - b) / 2.5)))
+
+/** Camera distance that fits a sphere of `radius` into the free part of the screen (freeW/freeH are 0..1 fractions). */
+export function frameDistance(radius, fovDeg, aspect, freeW, freeH, margin = 1.2) {
+  const v = Math.tan((fovDeg * Math.PI) / 360)
+  return (radius * margin) / Math.min(v * freeH, v * aspect * freeW)
+}

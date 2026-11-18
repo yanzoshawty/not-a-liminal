@@ -2,7 +2,7 @@ import { gsap } from 'gsap'
 import { Raycaster, Vector2, Vector3, Box3, RingGeometry, MeshBasicMaterial, Mesh } from 'three'
 import { HOTSPOTS, ENTITY_INFO } from './hotspots.js'
 import { chooseSpot } from './entity.js'
-import { ROOM_GAP, ROOM_COUNT } from './path.js'
+import { ROOM_GAP, ROOM_COUNT, roomAt, frameDistance } from './path.js'
 import { readFlag, writeFlag, store } from './prefs.js'
 import { notify } from './notify.js'
 
@@ -120,26 +120,28 @@ export function initInteract(world, scroll, { motion, fine }) {
     scroll.lock()
     const box = new Box3().setFromObject(obj)
     const center = box.getCenter(new Vector3())
-    const radius = box.getSize(new Vector3()).length() / 2
-    const dir = scroll.camera().clone().sub(center).setY(0)
-    const horiz = dir.length()
-    dir.normalize()
-    // Stay between the camera and the object so we never cross a wall.
-    const dist = Math.min(gsap.utils.clamp(1.8, 4.5, radius * 1.4), horiz * 0.85)
-    const to = center.clone().addScaledVector(dir, dist)
-    to.y = gsap.utils.clamp(1.2, 2.3, center.y + 0.3)
-    // Blend over the live pose (sway, mouse, scroll), so leaving focus lands exactly where the
-    // free camera already is: no snap at the end.
-    const focus = { pos: to, look: center, blend: 0, offX: 0, offY: 0 }
-    // Shift the view so the object is centred in the area the dialog leaves free.
-    const measure = () => {
+    // Long rows (lockers) can never fit whole in a corridor: cap the radius so we still get a close look.
+    const radius = Math.min(box.getSize(new Vector3()).length() / 2, 3)
+    const room = roomAt(center.z)
+    const top = -room * ROOM_GAP // room interior runs from z=top down to top-32
+    const strip = room === ROOM_COUNT - 1 ? 3.5 : 1.2 // walls are beyond |x|=1.7; the mall has a side detour
+    const clamp = gsap.utils.clamp
+    const focus = { pos: new Vector3(), look: center, blend: 0, offX: 0, offY: 0 }
+    // Stand on the room's centreline strip and back off along z, never through a wall; the object
+    // is fitted into the area the dialog leaves free. Re-run on resize.
+    const frame = () => {
       const r = dialog.open ? dialog.getBoundingClientRect() : { width: 0, height: 0 }
       const side = innerWidth >= 900
       focus.offX = side ? r.width / 2 + 12 : 0
       focus.offY = side ? 0 : r.height / 2
+      const cam = world.camera
+      const d = frameDistance(radius, cam.fov, cam.aspect, side ? 1 - (r.width + 24) / innerWidth : 1, side ? 1 : 1 - r.height / innerHeight)
+      const x = clamp(-strip, strip, center.x)
+      const dz = Math.sqrt(Math.max(0, d * d - (center.x - x) ** 2))
+      focus.pos.set(x, clamp(1.2, 2.3, center.y + 0.3), clamp(top - 31, top - 1, center.z + dz))
     }
-    measure()
-    onResize = measure
+    frame()
+    onResize = frame
     document.documentElement.classList.add('focusing')
     scroll.setFocus(focus)
     gsap.to(focus, { blend: 1, duration: dur(2.2), ease: 'power2.inOut' })
