@@ -9,6 +9,7 @@ import { readFlag, writeFlag, store } from './prefs.js'
 // respawns farther ahead inside its room).
 const FAR = { fade: 20, min: 12 }
 const NEAR = { fade: 10, min: 6 } // smiler: floats in the dark void, no walls to keep you away
+const TALL = { fade: 12, min: 8 } // the Backrooms is 32 m with a solid end wall: 20 m left nothing in sight past a third of it
 const HEAD_YAW = MathUtils.degToRad(60)
 const tmp = new Vector3()
 
@@ -51,7 +52,7 @@ export function initEntities(world, scroll, { motion }) {
   const voidRoom = () => Math.min(Math.max(Math.floor(-cam.z / ROOM_GAP), 0), ROOM_COUNT - 2)
 
   // Tall: Backrooms spots + a few hand-picked ones down the aisle and the far-left side, the only
-  // places 20+ m away that the centre channel can see (the room is 32 m long).
+  // far places the centre channel can see.
   const EXTRA = [[0, -30.5], [-1, -31.3], [-0.6, -28.5], [-6, -30.5], [-6.5, -31.3], [-8.4, -31.4]].map(([x, z]) => new Vector3(x, 0, z))
   const ray = new Raycaster()
   const chest = new Vector3()
@@ -64,7 +65,7 @@ export function initEntities(world, scroll, { motion }) {
   function placeTall(o) {
     const list = [...world.spots.filter((s) => s.room === 0).map((s) => s.obj.getWorldPosition(new Vector3())), ...EXTRA]
       .map((p, i) => ({ i, p, d: p.distanceTo(cam) }))
-      .filter((s) => s.d >= FAR.fade + 1 && s.d <= 45 && s.d >= lastDist && inSight(s.p, s.d))
+      .filter((s) => s.d >= TALL.fade + 1 && s.d <= 45 && s.d >= lastDist && inSight(s.p, s.d))
     if (!list.length) return false
     const s = chooseSpot(list, current, lastDist, Math.random)
     current = s.i
@@ -79,7 +80,7 @@ export function initEntities(world, scroll, { motion }) {
   }
 
   const ents = [
-    { id: 'tall', key: () => scroll.room, room: 0, place: placeTall, opacity: 1, respawn: true, ...FAR },
+    { id: 'tall', key: () => scroll.room, room: 0, place: placeTall, opacity: 1, respawn: true, ...TALL },
     { id: 'smiler', key: voidRoom, room: null, opacity: 1, ...NEAR,
       place: (o) => { o.position.set(0, 1.7, smilerZ(voidRoom())); return cam.z > o.position.z } },
     { id: 'silhouette', key: () => scroll.room, room: 2, place: atAnchor('silhouette'), opacity: 1, ...FAR },
