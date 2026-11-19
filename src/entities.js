@@ -1,11 +1,12 @@
 import { gsap } from 'gsap'
-import { Vector3, Group, Mesh, CircleGeometry, RingGeometry, PlaneGeometry, MeshBasicMaterial, MathUtils } from 'three'
+import { Vector3, Raycaster, Group, Mesh, CircleGeometry, RingGeometry, PlaneGeometry, MeshBasicMaterial, MathUtils } from 'three'
 import { chooseSpot, visibility, smilerZ } from './entity.js'
 import { ROOM_GAP, ROOM_COUNT } from './path.js'
 import { readFlag, writeFlag, store } from './prefs.js'
 
 // Nothing ever approaches the camera: each entity fades once you are within `fade` metres,
-// is gone instantly below `min`, and only comes back after the camera changes room.
+// is gone instantly below `min`, and only comes back after the camera changes room (tall also
+// respawns farther ahead inside its room).
 const FAR = { fade: 20, min: 12 }
 const NEAR = { fade: 10, min: 6 } // smiler: floats in the dark void, no walls to keep you away
 const HEAD_YAW = MathUtils.degToRad(60)
@@ -49,18 +50,24 @@ export function initEntities(world, scroll, { motion }) {
 
   const voidRoom = () => Math.min(Math.max(Math.floor(-cam.z / ROOM_GAP), 0), ROOM_COUNT - 2)
 
-  // Tall: Backrooms spawn spots, never reappears closer than the last spawn.
-  let current = -1, lastDist = 0
+  // Tall: Backrooms spots + a few hand-picked ones down the aisle and the far-left side, the only
+  // places 20+ m away that the centre channel can see (the room is 32 m long).
+  const EXTRA = [[0, -30.5], [-1, -31.3], [-0.6, -28.5], [-6, -30.5], [-6.5, -31.3], [-8.4, -31.4]].map(([x, z]) => new Vector3(x, 0, z))
+  const ray = new Raycaster()
+  const chest = new Vector3()
+  function inSight(p, d) {
+    ray.set(cam, chest.set(p.x, 1.5, p.z).sub(cam).normalize())
+    ray.far = d
+    return !ray.intersectObjects(world.scene.children, true).some((h) => h.object.visible && !h.object.userData.entity)
+  }
+  let current = -1, lastDist = 0 // lastDist: distance when it last faded, reset per room
   function placeTall(o) {
-    const list = world.spots
-      .filter((s) => s.room === 0)
-      .map((s, i) => ({ i, p: s.obj.getWorldPosition(new Vector3()) }))
-      .map((s) => ({ ...s, d: s.p.distanceTo(cam) }))
-      .filter((s) => s.d >= FAR.fade + 4 && s.d <= 40)
+    const list = [...world.spots.filter((s) => s.room === 0).map((s) => s.obj.getWorldPosition(new Vector3())), ...EXTRA]
+      .map((p, i) => ({ i, p, d: p.distanceTo(cam) }))
+      .filter((s) => s.d >= FAR.fade + 1 && s.d <= 45 && s.d >= lastDist && inSight(s.p, s.d))
     if (!list.length) return false
     const s = chooseSpot(list, current, lastDist, Math.random)
     current = s.i
-    lastDist = s.d
     o.position.copy(s.p)
     return true
   }
@@ -72,7 +79,7 @@ export function initEntities(world, scroll, { motion }) {
   }
 
   const ents = [
-    { id: 'tall', key: () => scroll.room, room: 0, place: placeTall, opacity: 0.92, ...FAR },
+    { id: 'tall', key: () => scroll.room, room: 0, place: placeTall, opacity: 1, respawn: true, ...FAR },
     { id: 'smiler', key: voidRoom, room: null, opacity: 1, ...NEAR,
       place: (o) => { o.position.set(0, 1.7, smilerZ(voidRoom())); return cam.z > o.position.z } },
     { id: 'silhouette', key: () => scroll.room, room: 2, place: atAnchor('silhouette'), opacity: 1, ...FAR },
@@ -129,15 +136,19 @@ export function initEntities(world, scroll, { motion }) {
     if (tryPlace) retry = 0.5 // spot search walks every spot: twice a second is plenty
     for (const e of ents) {
       const k = e.key()
-      if (k !== e.lastKey) { e.lastKey = k; vanish(e.id); e.out = false }
+      if (k !== e.lastKey) { e.lastKey = k; vanish(e.id); e.out = false; if (e.respawn) { lastDist = 0; current = -1 } }
+      e.wait = (e.wait ?? 0) - dt
       if (!e.shown) {
-        if (enabled && tryPlace && !e.out && (e.room === null || e.room === scroll.room) && e.place(e.obj)
+        if (enabled && tryPlace && !e.out && e.wait <= 0 && (e.room === null || e.room === scroll.room) && e.place(e.obj)
           && visibility(e.obj.position.distanceTo(cam), e.fade, e.min) === 'show') show(e)
         continue
       }
-      const v = visibility(e.base.distanceTo(cam), e.fade, e.min)
-      if (v === 'hide') { vanish(e.id, true); continue }
-      if (v === 'fade') vanish(e.id) // fades out before you get anywhere near
+      const d = e.base.distanceTo(cam)
+      const v = visibility(d, e.fade, e.min)
+      if (v === 'show') continue
+      vanish(e.id, v === 'hide') // fades out before you get anywhere near
+      // Proximity fade, not a click: tall may come back farther ahead, never closer than it was.
+      if (e.respawn) { e.out = false; e.wait = 1.5; lastDist = d }
     }
 
     const tall = byId('tall')

@@ -80,7 +80,9 @@ export function createWorld(canvas, tier) {
       const src = o.material
       o.material = id === 'partygoer'
         ? new THREE.MeshBasicMaterial({ map: src.map, color: src.color, transparent: true })
-        : new THREE.MeshBasicMaterial({ color: 0x040404, transparent: true })
+        : id === 'tall' // fog-free: at 20-30 m the Backrooms haze would wash it out completely
+          ? new THREE.MeshBasicMaterial({ color: 0x050403, fog: false, transparent: true })
+          : new THREE.MeshBasicMaterial({ color: 0x040404, transparent: true })
       src.dispose()
       o.userData.entity = id
     })
