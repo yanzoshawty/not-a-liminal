@@ -37,7 +37,7 @@ export function initInteract(world, scroll, { motion, fine }) {
   const ents = initEntities(world, scroll, { motion })
   let onClose = null
   let onResize = null
-  addEventListener('resize', () => onResize?.())
+  new ResizeObserver(() => onResize?.()).observe(world.renderer.domElement) // after main's fit() so frame() sees the new aspect
 
   // ---------------------------------------------------------- picking
   function pick(x, y) {
